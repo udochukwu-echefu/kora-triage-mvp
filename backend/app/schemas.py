@@ -1,0 +1,135 @@
+from __future__ import annotations
+
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class Intent(str, Enum):
+    transfer_pending = "Transfer pending"
+    payment_failed = "Payment failed"
+    duplicate_debit = "Duplicate debit"
+    fraud_report = "Fraud report"
+    delivery_delayed = "Delivery delayed"
+    delivery_missing = "Delivery missing"
+    delivery_change = "Delivery change"
+    account_access = "Account access"
+    account_verification = "Account verification"
+    refund_pending = "Refund pending"
+    general_enquiry = "General enquiry"
+
+
+class Urgency(str, Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    critical = "critical"
+
+
+class Sentiment(str, Enum):
+    calm = "calm"
+    concerned = "concerned"
+    frustrated = "frustrated"
+    hostile = "hostile"
+
+
+class Route(str, Enum):
+    payments = "Billing"
+    transfers = "Transfers"
+    logistics = "Logistics"
+    account_support = "Account Support"
+    compliance = "Compliance"
+    risk_fraud = "Fraud"
+    general_support = "General Support"
+
+
+class ExtractedEntities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount: str | None
+    transaction_id: str | None
+    order_id: str | None
+    account_last4: str | None
+    card_last4: str | None
+
+
+class ModelTriage(BaseModel):
+    """Exact schema requested from Groq Structured Outputs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    intent: Intent
+    urgency: Urgency
+    sentiment: Sentiment
+    route: Route
+    confidence: float = Field(ge=0, le=1)
+    entities: ExtractedEntities
+    memory_used: bool
+    evidence: list[str] = Field(min_length=1, max_length=5)
+    draft_response: str = Field(min_length=1, max_length=1200)
+
+
+class CustomerContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    previous_context: str = Field(default="", max_length=3000)
+    notes: list[str] = Field(default_factory=list, max_length=20)
+
+
+class TriageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str = Field(min_length=1, max_length=80)
+    channel: str = Field(pattern="^(whatsapp|email)$")
+    message: str = Field(min_length=1, max_length=8000)
+    subject: str | None = Field(default=None, max_length=500)
+    customer: CustomerContext
+
+
+class TriageResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    intent: Intent
+    urgency: Urgency
+    sentiment: Sentiment
+    route: Route
+    confidence: float
+    entities: dict[str, str | None]
+    memory_used: bool
+    escalated: bool
+    escalation_reason: str | None
+    evidence: list[str]
+    response: str
+    status: str
+    source: str
+    model: str
+    audit_id: int
+    processing_ms: int
+    estimated_minutes_saved: float
+
+
+class ActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actor: str = Field(default="support-agent", min_length=1, max_length=120)
+    customer_id: str = Field(min_length=1, max_length=80)
+    note: str | None = Field(default=None, max_length=1000)
+    response: str | None = Field(default=None, max_length=1200)
+
+
+class RouteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actor: str = Field(default="support-agent", min_length=1, max_length=120)
+    customer_id: str = Field(min_length=1, max_length=80)
+    team: str = Field(pattern="^(Transfers|Fraud|Logistics|Billing|Account Support|Compliance|General Support)$")
+
+
+class AutomationSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    auto_approve_threshold: int = Field(default=95, ge=80, le=99)
+    mandatory_review_threshold: int = Field(default=70, ge=50, le=90)

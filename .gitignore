@@ -1,0 +1,10 @@
+node_modules/
+dist/
+backend/.venv/
+backend/.env
+backend/data/
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+.railway/
