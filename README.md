@@ -15,6 +15,11 @@ A polished support triage operations dashboard for a Nigerian fintech or e-comme
 - Confidence-threshold automation controls with mandatory-review boundaries
 - SLA-at-risk flags, queue filters, and guarded bulk actions
 - Loading, empty, filtered, and responsive interface states
+- Idempotent inbound email and WhatsApp webhook adapters
+- Persistent conversation threads with resolved and reopened case states
+- Durable background triage and delivery jobs with retries and dead-letter status
+- Human correction capture and a release regression gate
+- Tenant-scoped bearer-token roles for non-demo deployments
 
 ## Frontend stack
 
@@ -50,7 +55,7 @@ The first run seeds 18 labelled, fully processed model snapshots into SQLite so 
 
 The dashboard calculates live intent-and-urgency accuracy against the labelled synthetic dataset and estimates handling-time savings against the configurable `KORA_MANUAL_BASELINE_MINUTES` baseline. The Audit tab loads persisted model and human decisions from SQLite and can export them as CSV. Customer memory is deduplicated by customer and case before it is supplied to Groq.
 
-Confidence automation records qualifying approval decisions inside Kora. It does not transmit messages to WhatsApp or email until a delivery provider is integrated.
+Confidence automation can queue eligible responses for delivery. `KORA_CHANNEL_MODE=demo` safely records an outbound message without contacting a customer. Switch to `live` only after configuring Postmark or WhatsApp Cloud API credentials and their signed webhooks.
 
 See `backend/README.md` for API endpoints and the production safety boundary.
 
@@ -66,8 +71,16 @@ GROQ_API_KEY=your_live_groq_key
 GROQ_MODEL=openai/gpt-oss-20b
 KORA_DATABASE_PATH=/data/kora.db
 KORA_MANUAL_BASELINE_MINUTES=12
+KORA_AUTH_MODE=demo
+KORA_CHANNEL_MODE=demo
+KORA_WEBHOOK_TOKEN=replace-with-a-long-random-value
 ```
 
 Attach a Railway volume at `/data` before relying on customer memory or the
 audit trail. Keep the service at one replica while it uses SQLite. Configure the
 health check path as `/api/health`.
+
+For live channels, add the provider variables listed in `backend/.env.example`,
+change `KORA_CHANNEL_MODE` to `live`, and register the Railway webhook URLs.
+Keep the public portfolio deployment in demo auth unless it is placed behind a
+real identity provider or provisioned bearer tokens.

@@ -2,8 +2,9 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, ArrowRight, BarChart3, Bell, Bot, Check,
   CheckCircle2, ChevronDown, CircleAlert, CircleUserRound, Clock3, Database, Download, Filter,
-  Inbox, LoaderCircle, LogOut, Menu, MoreHorizontal, Route, Save, Search, Settings, ShieldAlert,
-  Sparkles, Square, SquareCheckBig, Timer, UserRoundCheck, Users, X, Zap
+  Inbox, LoaderCircle, LogOut, Mail, Menu, MessageCircle, MessagesSquare, MoreHorizontal, Route,
+  Save, Search, Send, Settings, ShieldAlert, ShieldCheck, Sparkles, Square, SquareCheckBig, Timer,
+  UserRoundCheck, Users, Wrench, X, Zap
 } from "lucide-react";
 import { customers, messages } from "./data";
 import { cn } from "./lib/utils";
@@ -19,7 +20,9 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import {
   getAutomationSettings, getBackendAudit, getBackendHealth, getCases, getCustomerMemory,
-  recordCaseAction, recordCaseRoute, runGroqTriage, updateAutomationSettings
+  getCaseConversation, getCurrentUser, getEvaluationGate, getEvaluationSummary, getIntegrations,
+  getJobs, recordCaseAction, recordCaseFeedback, recordCaseRoute, resolveCase, runGroqTriage,
+  updateAutomationSettings
 } from "./api";
 import LandingPage from "./components/LandingPage";
 
@@ -63,6 +66,8 @@ const intentShort = {
 };
 const isProcessed = (ticket) => ticket.source && ticket.source !== "pending";
 const teamOptions = ["Transfers", "Fraud", "Logistics", "Billing", "Account Support", "Compliance", "General Support"];
+const intentOptions = ["Transfer pending", "Payment failed", "Duplicate debit", "Fraud report", "Delivery delayed", "Delivery missing", "Delivery change", "Account access", "Account verification", "Refund pending", "General enquiry"];
+const urgencyOptions = ["low", "medium", "high", "critical"];
 
 function policyState(ticket, automation) {
   if (!isProcessed(ticket)) return "pending";
@@ -103,7 +108,10 @@ function UrgencyBadge({ urgency }) {
   );
 }
 
-function Rail({ activeView, onView, open, onClose }) {
+function Rail({ activeView, onView, open, onClose, user }) {
+  const displayName = user?.display_name || "Ada Okafor";
+  const role = (user?.role || "support_manager").replaceAll("_", " ");
+  const initials = displayName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   return (
     <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-[214px] flex-col border-r border-line bg-paper px-3 py-5 transition-transform lg:translate-x-0", open ? "translate-x-0 shadow-precision" : "-translate-x-full")} aria-label="Main navigation">
       <button onClick={onClose} className="absolute right-2 top-2 p-1 lg:hidden" aria-label="Close navigation"><X className="size-4" /></button>
@@ -119,15 +127,18 @@ function Rail({ activeView, onView, open, onClose }) {
           ))}
         </nav>
         <div className="border-t border-line pt-3">
-          <button onClick={() => onView("settings")} className="flex h-12 w-full items-center gap-3 px-2 text-left hover:bg-muted-surface"><span className="grid size-8 place-items-center rounded-full bg-accent text-[9px] font-extrabold text-accent-ink">AO</span><span><strong className="block text-[10px] font-extrabold">Ada Okafor</strong><small className="text-[8px] font-semibold text-ink-faint">Support manager</small></span></button>
+          <button onClick={() => onView("settings")} className="flex h-12 w-full items-center gap-3 px-2 text-left hover:bg-muted-surface"><span className="grid size-8 place-items-center rounded-full bg-accent text-[9px] font-extrabold text-accent-ink">{initials}</span><span><strong className="block text-[10px] font-extrabold">{displayName}</strong><small className="capitalize text-[8px] font-semibold text-ink-faint">{role}</small></span></button>
         </div>
       </TooltipProvider>
     </aside>
   );
 }
 
-function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, onLogout }) {
+function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, onLogout, user }) {
   const [readNotificationIds, setReadNotificationIds] = useState([]);
+  const displayName = user?.display_name || "Ada Okafor";
+  const role = (user?.role || "support_manager").replaceAll("_", " ");
+  const initials = displayName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const titles = { queue: ["Operations", "Triage queue"], insights: ["Performance", "Support insights"], audit: ["Governance", "Decision audit"], team: ["Workforce", "Support team"], settings: ["Controls", "Automation settings"] };
   const engineLabel = backend.state === "checking"
     ? "Checking API"
@@ -180,12 +191,12 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="px-2.5 sm:px-3" aria-label="Open profile menu">
-              <span className="grid size-5 place-items-center rounded-full bg-accent text-[8px] font-extrabold text-accent-ink sm:hidden">AO</span>
-              <CircleUserRound className="hidden size-4 sm:block" /><span className="hidden sm:inline">Ada Okafor</span><ChevronDown className="size-3" />
+              <span className="grid size-5 place-items-center rounded-full bg-accent text-[8px] font-extrabold text-accent-ink sm:hidden">{initials}</span>
+              <CircleUserRound className="hidden size-4 sm:block" /><span className="hidden sm:inline">{displayName}</span><ChevronDown className="size-3" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56" sideOffset={8}>
-            <div className="px-2.5 py-2.5"><p className="text-[11px] font-extrabold">Ada Okafor</p><p className="mt-1 text-[9px] font-semibold text-ink-faint">Support manager</p></div>
+            <div className="px-2.5 py-2.5"><p className="text-[11px] font-extrabold">{displayName}</p><p className="mt-1 capitalize text-[9px] font-semibold text-ink-faint">{role}</p></div>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Workspace</DropdownMenuLabel>
             <DropdownMenuItem onSelect={() => onView("queue")}><Inbox className="size-3.5" />Support queue</DropdownMenuItem>
@@ -321,9 +332,10 @@ function EntityTag({ label, value }) {
   return <div className="border border-line bg-paper px-3 py-2"><span className="block text-[8px] font-extrabold uppercase tracking-[0.1em] text-ink-faint">{label}</span><strong className="mt-1 block text-[10px] font-bold">{value}</strong></div>;
 }
 
-function TicketDetail({ ticket, onApprove, onEscalate, onRunAI, aiLoading, actionLoading, backend, automation = { enabled: true, auto_approve_threshold: 95, mandatory_review_threshold: 70 }, memoryItems = [], memoryLoading = false }) {
+function TicketDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onResolve, aiLoading, actionLoading, backend, automation = { enabled: true, auto_approve_threshold: 95, mandatory_review_threshold: 70 }, memoryItems = [], memoryLoading = false, conversation = [], conversationLoading = false }) {
   const [draft, setDraft] = useState(ticket.response);
-  useEffect(() => setDraft(ticket.response), [ticket.id, ticket.response]);
+  const [correction, setCorrection] = useState({ intent: "", urgency: "", route: "", reason: "" });
+  useEffect(() => { setDraft(ticket.response); setCorrection({ intent: "", urgency: "", route: "", reason: "" }); }, [ticket.id, ticket.response]);
   const entities = Object.entries(ticket.entities).filter(([, value]) => value);
   const labels = { amount: "Amount", transactionId: "Transaction ID", orderId: "Order ID", account: "Account", card: "Card" };
   const sla = slaState(ticket);
@@ -333,7 +345,7 @@ function TicketDetail({ ticket, onApprove, onEscalate, onRunAI, aiLoading, actio
     <article className="detail-scroll bg-canvas" aria-labelledby="ticket-title">
       <header className="sticky top-0 z-10 flex min-h-[86px] items-center justify-between gap-4 border-b border-line bg-canvas/95 px-5 backdrop-blur-sm sm:px-7">
         <div className="min-w-0"><div className="flex items-center gap-2"><span className="section-label">{ticket.id}</span><span className="text-ink-faint">/</span><span className="section-label">{ticket.channel}</span></div><h2 id="ticket-title" className="mt-1 truncate text-[20px] font-extrabold tracking-[-0.045em]">{ticket.customer.name}</h2></div>
-        <div className="flex items-center gap-2">{sla && <Badge variant={sla.overdue ? "strong" : "outline"} shape="pill"><Timer className="size-3" />{sla.label}</Badge>}<UrgencyBadge urgency={ticket.urgency} /><DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="icon" aria-label="More case actions"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem>Copy case link</DropdownMenuItem><DropdownMenuItem>Add internal note</DropdownMenuItem><DropdownMenuItem>Mark as duplicate</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
+        <div className="flex items-center gap-2">{ticket.lifecycle?.state && <Badge variant="neutral" shape="pill"><span className="size-1.5 rounded-full bg-current" />{ticket.lifecycle.state.replaceAll("_", " ")}</Badge>}{sla && <Badge variant={sla.overdue ? "strong" : "outline"} shape="pill"><Timer className="size-3" />{sla.label}</Badge>}<UrgencyBadge urgency={ticket.urgency} /><DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="icon" aria-label="More case actions"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem>Copy case link</DropdownMenuItem><DropdownMenuItem>Add internal note</DropdownMenuItem><DropdownMenuItem>Mark as duplicate</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
       </header>
 
       <div className="detail-content">
@@ -342,6 +354,7 @@ function TicketDetail({ ticket, onApprove, onEscalate, onRunAI, aiLoading, actio
           {ticket.subject && <p className="mt-5 text-[11px] font-extrabold">{ticket.subject}</p>}
           <blockquote className="mt-4 max-w-[70ch] text-[13px] font-medium leading-7 tracking-[-0.01em] text-ink-muted">“{ticket.message}”</blockquote>
           <div className="mt-6 flex flex-wrap gap-2">{entities.map(([key, value]) => <EntityTag key={key} label={labels[key]} value={value} />)}</div>
+          {(conversationLoading || conversation.length > 0) && <details className="mt-6 border-t border-line pt-4"><summary className="flex cursor-pointer list-none items-center justify-between"><span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[0.09em]"><MessagesSquare className="size-3.5" />Conversation history</span><span className="flex items-center gap-2 text-[9px] text-ink-faint">{conversation.length} messages<ChevronDown className="size-3" /></span></summary><div className="mt-4 space-y-2">{conversationLoading ? <Skeleton className="h-20 w-full" /> : conversation.map((message) => <div key={message.id} className={cn("max-w-[88%] border p-3", message.direction === "outbound" ? "ml-auto border-ink bg-ink text-paper" : "border-line-strong bg-muted-surface")}><div className="flex items-center justify-between gap-4 text-[8px] font-bold uppercase tracking-[0.08em] opacity-70"><span>{message.direction === "outbound" ? "Kora response" : "Customer"}</span><span>{message.delivery_status}</span></div><p className="mt-2 text-[10px] leading-5">{message.body}</p></div>)}</div></details>}
         </section>
 
         <div className="grid xl:grid-cols-[minmax(0,1.08fr)_minmax(300px,.92fr)]">
@@ -356,6 +369,7 @@ function TicketDetail({ ticket, onApprove, onEscalate, onRunAI, aiLoading, actio
             <div className="mt-6 grid grid-cols-2 gap-px border border-line-strong bg-line-strong">
               {[['Intent', ticket.intent], ['Urgency', ticket.urgency], ['Sentiment', ticket.sentiment], ['Route', ticket.route]].map(([label, value]) => <div key={label} className="bg-ai px-3 py-3"><span className="text-[8px] font-extrabold uppercase tracking-[0.1em] text-ink-faint">{label}</span><strong className="mt-1 block text-[11px] font-extrabold capitalize">{value}</strong></div>)}
             </div>
+            {isProcessed(ticket) && <details className="mt-5 border border-line-strong bg-paper"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3"><span className="flex items-center gap-2"><Wrench className="size-3.5" /><strong className="text-[9px] font-extrabold uppercase tracking-[0.09em]">Correct the AI decision</strong></span><ChevronDown className="size-3" /></summary><div className="grid gap-3 border-t border-line p-4 sm:grid-cols-2"><label className="text-[9px] font-bold">Intent<select value={correction.intent} onChange={(event) => setCorrection({ ...correction, intent: event.target.value })} className="mt-2 h-9 w-full border border-line-strong bg-paper px-2 text-[10px]"><option value="">Keep {ticket.intent}</option>{intentOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label><label className="text-[9px] font-bold">Urgency<select value={correction.urgency} onChange={(event) => setCorrection({ ...correction, urgency: event.target.value })} className="mt-2 h-9 w-full border border-line-strong bg-paper px-2 text-[10px]"><option value="">Keep {ticket.urgency}</option>{urgencyOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label><label className="text-[9px] font-bold">Route<select value={correction.route} onChange={(event) => setCorrection({ ...correction, route: event.target.value })} className="mt-2 h-9 w-full border border-line-strong bg-paper px-2 text-[10px]"><option value="">Keep {ticket.route}</option>{teamOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label><label className="text-[9px] font-bold">Reason<input value={correction.reason} onChange={(event) => setCorrection({ ...correction, reason: event.target.value })} placeholder="Why was it corrected?" className="mt-2 h-9 w-full border border-line-strong bg-paper px-3 text-[10px]" /></label><Button size="sm" variant="outline" className="sm:col-span-2 sm:justify-self-start" disabled={actionLoading || (!correction.intent && !correction.urgency && !correction.route)} onClick={() => onFeedback(ticket.id, correction)}><ShieldCheck className="size-3.5" />Save correction</Button></div></details>}
             <details open className="mt-5 border border-line-strong bg-paper">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3"><span className="flex items-center gap-2"><Database className="size-3.5" /><strong className="text-[9px] font-extrabold uppercase tracking-[0.09em]">SQLite customer memory</strong></span><span className="flex items-center gap-2">{ticket.memoryUsed && <Badge variant="outline" shape="pill">Reused</Badge>}<ChevronDown className="size-3" /></span></summary>
               <div className="border-t border-line px-4 py-3">{memoryLoading ? <div className="space-y-2"><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /></div> : memoryItems.length ? <div className="space-y-2">{memoryItems.slice(0, 2).map((memory) => <div key={`${memory.case_id}-${memory.created_at}`} className="bg-muted-surface p-3"><div className="flex items-center justify-between gap-3"><strong className="text-[9px] font-extrabold">{memory.case_id}</strong><time className="text-[8px] text-ink-faint">{new Date(memory.created_at).toLocaleDateString()}</time></div><p className="mt-1 text-[9px] leading-4 text-ink-muted">{memory.summary}</p></div>)}</div> : <p className="text-[10px] leading-5 text-ink-muted">No stored case memory yet. Provided context: {ticket.customer.previousContext}</p>}</div>
@@ -371,7 +385,7 @@ function TicketDetail({ ticket, onApprove, onEscalate, onRunAI, aiLoading, actio
             <label className="mt-6 block"><span className="mb-2 block text-[9px] font-extrabold uppercase tracking-[0.09em] text-ink-muted">Response draft</span><textarea value={draft} onChange={(event) => setDraft(event.target.value)} disabled={!isProcessed(ticket)} placeholder="A live Groq draft will appear here." rows={10} className="w-full resize-none border border-line-strong bg-paper p-4 text-[11px] font-medium leading-6 outline-none placeholder:text-ink-faint focus:ring-2 focus:ring-ring disabled:bg-muted-surface" /></label>
             <div className="mt-4 flex items-center justify-between text-[9px] font-semibold text-ink-faint"><span>{draft.length} characters</span><span>{ticket.customer.notes.some((note) => note.includes("Pidgin")) ? "Pidgin aware" : "English"}</span></div>
             <div className="mt-6 border-t border-line-strong pt-5">
-              {!isProcessed(ticket) ? <Button disabled className="w-full"><LoaderCircle className={cn("size-4", aiLoading && "animate-spin")} />{aiLoading ? "Running live triage" : "Live triage required"}</Button> : policy === "mandatory" ? <Button disabled={actionLoading} onClick={() => onEscalate(ticket.id, draft)} variant="default" className="w-full">{actionLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Users className="size-4" />}Assign to specialist</Button> : <div className="grid grid-cols-[auto_1fr] gap-2"><Button disabled={actionLoading} onClick={() => onEscalate(ticket.id, draft)} variant="outline" aria-label="Escalate to a person"><Users className="size-4" /></Button><Button disabled={actionLoading} onClick={() => onApprove(ticket.id, draft)} variant="accent">{actionLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}Approve and send</Button></div>}
+              {!isProcessed(ticket) ? <Button disabled className="w-full"><LoaderCircle className={cn("size-4", aiLoading && "animate-spin")} />{aiLoading ? "Running live triage" : "Live triage required"}</Button> : ["sent", "delivered", "replied"].includes(ticket.lifecycle?.state) ? <Button disabled={actionLoading} onClick={() => onResolve(ticket.id)} className="w-full"><CheckCircle2 className="size-4" />Mark resolved</Button> : policy === "mandatory" ? <Button disabled={actionLoading} onClick={() => onEscalate(ticket.id, draft)} variant="default" className="w-full">{actionLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Users className="size-4" />}Assign to specialist</Button> : <div className="grid grid-cols-[auto_1fr] gap-2"><Button disabled={actionLoading} onClick={() => onEscalate(ticket.id, draft)} variant="outline" aria-label="Escalate to a person"><Users className="size-4" /></Button><Button disabled={actionLoading} onClick={() => onApprove(ticket.id, draft)} variant="accent">{actionLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}Approve and send</Button></div>}
               <p className="mt-3 text-center text-[8px] font-bold uppercase tracking-[0.08em] text-ink-faint">No financial action is automated</p>
             </div>
           </section>
@@ -396,7 +410,7 @@ function TeamView({ tickets }) {
   );
 }
 
-function SettingsView({ automation, onChange, onSave, saving, tickets }) {
+function SettingsView({ automation, onChange, onSave, saving, tickets, integrations, jobs }) {
   const autoCount = tickets.filter((ticket) => policyState(ticket, automation) === "auto").length;
   const reviewCount = tickets.filter((ticket) => policyState(ticket, automation) === "mandatory").length;
   const normalCount = tickets.filter((ticket) => policyState(ticket, automation) === "normal").length;
@@ -412,6 +426,13 @@ function SettingsView({ automation, onChange, onSave, saving, tickets }) {
           <Button onClick={onSave} disabled={saving || automation.mandatory_review_threshold >= automation.auto_approve_threshold} className="mt-7"><Save className="size-4" />{saving ? "Saving policy" : "Save automation policy"}</Button>
         </Card>
         <div className="border border-line-strong bg-ai p-6"><p className="section-label !text-ink">Current queue impact</p><h3 className="mt-2 text-[15px] font-extrabold">Policy preview</h3><div className="mt-6 divide-y divide-line-strong border-y border-line-strong">{[["Auto-approve", autoCount, "At or above upper threshold"], ["Normal queue", normalCount, "Agent review remains optional"], ["Mandatory review", reviewCount, "Low confidence or guardrail"]].map(([label, count, meta], index) => <div key={label} className="flex items-center justify-between py-4"><span><strong className="block text-[10px]">{label}</strong><small className="mt-1 block text-[8px] text-ink-faint">{meta}</small></span><strong className={cn("text-[22px] tracking-[-0.05em]", index === 0 && "text-accent-ink")}>{count}</strong></div>)}</div><p className="mt-5 text-[9px] leading-5 text-ink-muted">This policy records approval decisions inside Kora. A WhatsApp or email delivery provider must be connected before drafts can be transmitted externally.</p></div>
+      </div>
+      <div className="mt-5 border border-line-strong bg-paper">
+        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-line p-6"><div><p className="section-label">Delivery infrastructure</p><h3 className="mt-1 text-[16px] font-extrabold tracking-[-0.03em]">Channels and durable jobs</h3><p className="mt-2 max-w-2xl text-[10px] leading-5 text-ink-muted">Inbound webhooks are deduplicated before processing. Failed sends retry with backoff and move to the dead-letter queue after the final attempt.</p></div><Badge variant={integrations?.mode === "demo" ? "neutral" : "accent"} shape="pill">{integrations?.mode || "checking"} mode</Badge></div>
+        <div className="grid lg:grid-cols-[1fr_1fr_.8fr]">
+          {[["Email", Mail, integrations?.email], ["WhatsApp", MessageCircle, integrations?.whatsapp]].map(([label, Icon, channel]) => <div key={label} className="border-b border-line p-6 lg:border-b-0 lg:border-r"><div className="flex items-center justify-between"><span className="flex items-center gap-2"><Icon className="size-4" /><strong className="text-[11px]">{label}</strong></span><Badge variant={channel?.configured ? "accent" : "outline"} shape="pill">{channel?.configured ? "Connected" : "Not configured"}</Badge></div><p className="mt-3 text-[9px] text-ink-muted">{channel?.provider || "Provider unavailable"}</p></div>)}
+          <div className="p-6"><div className="flex items-center gap-2"><Wrench className="size-4" /><strong className="text-[11px]">Job health</strong></div><div className="mt-4 grid grid-cols-3 gap-2">{[["Queued", jobs?.counts?.queued || 0], ["Retry", jobs?.counts?.retry || 0], ["Dead", jobs?.counts?.dead || 0]].map(([label, value]) => <div key={label} className="bg-muted-surface p-3"><span className="block text-[8px] font-bold text-ink-faint">{label}</span><strong className="mt-1 block text-[16px]">{value}</strong></div>)}</div></div>
+        </div>
       </div>
     </div>
   );
@@ -481,6 +502,13 @@ function DashboardApp() {
   const [automation, setAutomation] = useState({ enabled: true, auto_approve_threshold: 95, mandatory_review_threshold: 70 });
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [integrations, setIntegrations] = useState(null);
+  const [jobs, setJobs] = useState({ counts: {} });
+  const [evaluationSummary, setEvaluationSummary] = useState(null);
+  const [evaluationGate, setEvaluationGate] = useState(null);
+  const [conversation, setConversation] = useState([]);
+  const [conversationLoading, setConversationLoading] = useState(false);
   const activeFilters = { review: false, high: false, channel: "all", urgency: "all", team: "all", ...filters };
 
   const refreshAudit = async () => {
@@ -508,6 +536,18 @@ function DashboardApp() {
     }
   };
 
+  const refreshConversation = async (caseId) => {
+    setConversationLoading(true);
+    try {
+      const result = await getCaseConversation(caseId);
+      setConversation(result.messages || []);
+    } catch {
+      setConversation([]);
+    } finally {
+      setConversationLoading(false);
+    }
+  };
+
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2600); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => {
     let active = true;
@@ -519,12 +559,19 @@ function DashboardApp() {
   useEffect(() => {
     if (backend.state !== "online") return;
     let active = true;
-    Promise.all([getCases(), getAutomationSettings(), getBackendAudit(200)])
-      .then(([caseResult, settingsResult, auditResult]) => {
+    Promise.all([getCases(), getAutomationSettings(), getBackendAudit(200), getCurrentUser(), getIntegrations(), getEvaluationSummary()])
+      .then(async ([caseResult, settingsResult, auditResult, userResult, integrationResult, evaluationResult]) => {
         if (!active) return;
         setTickets(caseResult.items || seedTickets);
         setAutomation(settingsResult);
         setAuditItems(auditResult.items || []);
+        setCurrentUser(userResult);
+        setIntegrations(integrationResult);
+        setEvaluationSummary(evaluationResult);
+        const [jobResult, gateResult] = await Promise.allSettled([getJobs(50), getEvaluationGate()]);
+        if (!active) return;
+        if (jobResult.status === "fulfilled") setJobs(jobResult.value);
+        if (gateResult.status === "fulfilled") setEvaluationGate(gateResult.value);
       })
       .catch((error) => active && setToast(error.message || "Could not load the operations dataset"))
       .finally(() => active && setLoading(false));
@@ -547,8 +594,11 @@ function DashboardApp() {
   useEffect(() => { if (visibleTickets.length && !visibleTickets.some((ticket) => ticket.id === selectedId)) setSelectedId(visibleTickets[0].id); }, [visibleTickets, selectedId]);
   const selectedTicket = tickets.find((ticket) => ticket.id === selectedId) || tickets[0];
   useEffect(() => {
-    if (backend.state === "online") refreshMemory(selectedTicket.customerId);
-  }, [backend.state, selectedTicket.customerId]);
+    if (backend.state === "online") {
+      refreshMemory(selectedTicket.customerId);
+      refreshConversation(selectedTicket.id);
+    }
+  }, [backend.state, selectedTicket.customerId, selectedTicket.id]);
   const updateStatus = (id, status, escalated) => setTickets((items) => items.map((ticket) => ticket.id === id ? { ...ticket, status, escalated: escalated ?? ticket.escalated } : ticket));
   const runLiveAI = async (ticket) => {
     setAiLoadingId(ticket.id);
@@ -593,10 +643,14 @@ function DashboardApp() {
     }
     setActionLoadingId(id);
     try {
-      await recordCaseAction(ticket, "approve", draft);
-      updateStatus(id, "Approved", false);
+      const result = await recordCaseAction(ticket, "approve", draft);
+      updateStatus(id, result.status === "queued" ? "Queued to send" : "Approved", false);
+      if (result.status === "queued") {
+        setTickets((items) => items.map((item) => item.id === id ? { ...item, lifecycle: { ...(item.lifecycle || {}), state: "queued" } } : item));
+      }
       refreshAudit();
-      setToast(`${id} approval recorded`);
+      refreshConversation(id);
+      setToast(result.status === "queued" ? `${id} queued for delivery` : `${id} approval recorded`);
     } catch (error) {
       setToast(error.message || "Approval failed");
     } finally {
@@ -617,6 +671,47 @@ function DashboardApp() {
       setToast(`${id} assigned and recorded`);
     } catch (error) {
       setToast(error.message || "Escalation failed");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const saveFeedback = async (id, feedback) => {
+    const ticket = tickets.find((item) => item.id === id);
+    setActionLoadingId(id);
+    try {
+      await recordCaseFeedback(ticket, feedback);
+      setTickets((items) => items.map((item) => item.id === id ? {
+        ...item,
+        intent: feedback.intent || item.intent,
+        urgency: feedback.urgency || item.urgency,
+        route: feedback.route || item.route
+      } : item));
+      const summary = await getEvaluationSummary();
+      setEvaluationSummary(summary);
+      if (currentUser?.role !== "support_agent") {
+        const gate = await getEvaluationGate();
+        setEvaluationGate(gate);
+      }
+      refreshAudit();
+      setToast(`${id} correction added to the evaluation set`);
+    } catch (error) {
+      setToast(error.message || "Could not save the correction");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const resolve = async (id) => {
+    const ticket = tickets.find((item) => item.id === id);
+    setActionLoadingId(id);
+    try {
+      await resolveCase(ticket, "Agent confirmed the customer issue is resolved.");
+      setTickets((items) => items.map((item) => item.id === id ? { ...item, status: "Resolved", lifecycle: { ...(item.lifecycle || {}), state: "resolved" } } : item));
+      refreshAudit();
+      setToast(`${id} resolved`);
+    } catch (error) {
+      setToast(error.message || "Could not resolve the case");
     } finally {
       setActionLoadingId(null);
     }
@@ -683,8 +778,8 @@ function DashboardApp() {
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <a href="#main-content" className="skip-link">Skip to content</a>
-      <Rail activeView={activeView} onView={setActiveView} open={railOpen} onClose={() => setRailOpen(false)} />
-      <div className="lg:pl-[214px]"><Header activeView={activeView} onMenu={() => setRailOpen(true)} backend={backend} tickets={tickets} onOpenTicket={openTicketFromNotification} onView={setActiveView} onLogout={() => setSignedIn(false)} /><main id="main-content" tabIndex={-1}>{activeView === "queue" && <><MetricsStrip tickets={tickets} /><div className="workspace-grid"><QueuePane tickets={visibleTickets} selectedId={selectedId} onSelect={setSelectedId} loading={loading} query={query} onQuery={setQuery} filters={activeFilters} onFilters={setFilters} selectedIds={selectedIds} onToggle={toggleSelected} onSelectAll={selectAll} onBulkApprove={bulkApprove} onBulkRoute={bulkRoute} bulkLoading={bulkLoading} automation={automation} /><TicketDetail ticket={selectedTicket} onApprove={approve} onEscalate={escalate} onRunAI={runLiveAI} aiLoading={aiLoadingId === selectedTicket.id} actionLoading={actionLoadingId === selectedTicket.id} backend={backend} automation={automation} memoryItems={memoryItems} memoryLoading={memoryLoading} /></div></>}{activeView === "insights" && <Suspense fallback={<div className="view-padding"><Skeleton className="h-[420px] w-full" /></div>}><InsightsView tickets={tickets} /></Suspense>}{activeView === "audit" && <AuditView items={auditItems} loading={auditLoading} />}{activeView === "team" && <TeamView tickets={tickets} />}{activeView === "settings" && <SettingsView automation={automation} onChange={setAutomation} onSave={saveAutomation} saving={settingsSaving} tickets={tickets} />}</main></div>
+      <Rail activeView={activeView} onView={setActiveView} open={railOpen} onClose={() => setRailOpen(false)} user={currentUser} />
+      <div className="lg:pl-[214px]"><Header activeView={activeView} onMenu={() => setRailOpen(true)} backend={backend} tickets={tickets} onOpenTicket={openTicketFromNotification} onView={setActiveView} user={currentUser} onLogout={() => { window.localStorage.removeItem("kora_token"); setSignedIn(false); }} /><main id="main-content" tabIndex={-1}>{activeView === "queue" && <><MetricsStrip tickets={tickets} /><div className="workspace-grid"><QueuePane tickets={visibleTickets} selectedId={selectedId} onSelect={setSelectedId} loading={loading} query={query} onQuery={setQuery} filters={activeFilters} onFilters={setFilters} selectedIds={selectedIds} onToggle={toggleSelected} onSelectAll={selectAll} onBulkApprove={bulkApprove} onBulkRoute={bulkRoute} bulkLoading={bulkLoading} automation={automation} /><TicketDetail ticket={selectedTicket} onApprove={approve} onEscalate={escalate} onRunAI={runLiveAI} onFeedback={saveFeedback} onResolve={resolve} aiLoading={aiLoadingId === selectedTicket.id} actionLoading={actionLoadingId === selectedTicket.id} backend={backend} automation={automation} memoryItems={memoryItems} memoryLoading={memoryLoading} conversation={conversation} conversationLoading={conversationLoading} /></div></>}{activeView === "insights" && <Suspense fallback={<div className="view-padding"><Skeleton className="h-[420px] w-full" /></div>}><InsightsView tickets={tickets} evaluationSummary={evaluationSummary} evaluationGate={evaluationGate} /></Suspense>}{activeView === "audit" && <AuditView items={auditItems} loading={auditLoading} />}{activeView === "team" && <TeamView tickets={tickets} />}{activeView === "settings" && <SettingsView automation={automation} onChange={setAutomation} onSave={saveAutomation} saving={settingsSaving} tickets={tickets} integrations={integrations} jobs={jobs} />}</main></div>
       {railOpen && <button className="fixed inset-0 z-30 bg-ink/20 lg:hidden" onClick={() => setRailOpen(false)} aria-label="Close navigation overlay" />}
       <div role="status" aria-live="polite" className={cn("fixed bottom-5 right-5 z-50 flex items-center gap-2 border border-ink bg-ink px-4 py-3 text-[11px] font-bold text-paper shadow-precision transition-all", toast ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")}><CheckCircle2 className="size-4 text-accent" />{toast}</div>
     </div>

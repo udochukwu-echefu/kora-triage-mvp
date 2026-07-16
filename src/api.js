@@ -1,7 +1,15 @@
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  const token = window.localStorage.getItem("kora_token");
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      ...(options.body ? JSON_HEADERS : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {})
+    }
+  });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload.detail || `Request failed with status ${response.status}`);
@@ -19,6 +27,30 @@ export function getBackendAudit(limit = 100) {
 
 export function getCases() {
   return api("/api/cases");
+}
+
+export function getCurrentUser() {
+  return api("/api/auth/me");
+}
+
+export function getIntegrations() {
+  return api("/api/integrations");
+}
+
+export function getEvaluationSummary() {
+  return api("/api/evaluations/summary");
+}
+
+export function getEvaluationGate() {
+  return api("/api/evaluations/gate");
+}
+
+export function getJobs(limit = 100) {
+  return api(`/api/jobs?limit=${encodeURIComponent(limit)}`);
+}
+
+export function getCaseConversation(caseId) {
+  return api(`/api/cases/${encodeURIComponent(caseId)}/conversation`);
 }
 
 export function getAutomationSettings() {
@@ -77,6 +109,34 @@ export function recordCaseRoute(ticket, team) {
       actor: "Ada Okafor",
       customer_id: ticket.customerId,
       team
+    })
+  });
+}
+
+export function recordCaseFeedback(ticket, feedback) {
+  return api(`/api/cases/${encodeURIComponent(ticket.id)}/feedback`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      actor: "Ada Okafor",
+      customer_id: ticket.customerId,
+      corrected_intent: feedback.intent || null,
+      corrected_urgency: feedback.urgency || null,
+      corrected_route: feedback.route || null,
+      response_accepted: feedback.responseAccepted ?? null,
+      reason: feedback.reason || null
+    })
+  });
+}
+
+export function resolveCase(ticket, resolution) {
+  return api(`/api/cases/${encodeURIComponent(ticket.id)}/resolve`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      actor: "Ada Okafor",
+      customer_id: ticket.customerId,
+      resolution
     })
   });
 }

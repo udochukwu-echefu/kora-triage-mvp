@@ -53,12 +53,42 @@ The API is available at `http://127.0.0.1:8000`, with interactive documentation 
 - `POST /api/cases/{case_id}/approve`: guarded human approval
 - `POST /api/cases/{case_id}/escalate`: human escalation
 - `POST /api/cases/{case_id}/route`: guarded queue routing
+- `GET /api/cases/{case_id}/conversation`: persisted inbound and outbound thread
+- `POST /api/cases/{case_id}/feedback`: corrected labels and response review outcome
+- `POST /api/cases/{case_id}/resolve`: close a case so a later reply can reopen it
+- `GET /api/evaluations/summary`: human-feedback and labelled-set metrics
+- `GET /api/evaluations/gate`: manager-only regression gate
+- `GET /api/jobs`: manager-only delivery and triage job health
+- `POST /api/webhooks/postmark/inbound`: authenticated inbound email adapter
+- `POST /api/webhooks/postmark/delivery`: email delivery and bounce updates
+- `GET|POST /api/webhooks/whatsapp`: WhatsApp verification and signed inbound messages
+- `POST /api/webhooks/inbound`: provider-neutral integration endpoint
 
 On first startup, the API seeds 18 synthetic processed model snapshots into SQLite. Seeding is idempotent and never overwrites a later live Groq triage result for the same case.
 
 ## Safety boundary
 
 The LLM recommends intent, urgency, routing, entities, and a draft. Deterministic Python code makes the final escalation decision. Fraud, critical urgency, hostile sentiment, low confidence, unsafe requests for credentials, and unverified financial-action claims are blocked or escalated.
+
+## Delivery modes
+
+`KORA_CHANNEL_MODE=demo` is the default. The worker completes the same durable
+workflow and writes an outbound conversation record, but no external API is
+called. For live email, configure Postmark and point its inbound, delivery, and
+bounce webhooks at the endpoints above. For live WhatsApp, configure the Cloud
+API token, phone-number ID, verification token, and app secret.
+
+Every webhook is persisted before processing, every job uses a tenant-scoped
+idempotency key, and transient failures retry with exponential backoff. A job
+moves to `dead` after its final attempt and the case becomes visibly failed.
+
+## Authentication
+
+The portfolio deployment uses `KORA_AUTH_MODE=demo`, which supplies a clearly
+identified support-manager principal. Set `KORA_AUTH_MODE=required` to require a
+tenant-scoped bearer token stored as a SHA-256 hash in `api_principal`. The web
+client reads a provisioned token from the `kora_token` browser local-storage
+key. Manager-only endpoints enforce role checks server-side.
 
 ## Tests
 

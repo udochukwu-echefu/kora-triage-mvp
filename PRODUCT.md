@@ -27,6 +27,8 @@ Avoid flashy AI-command-center visuals, neon fintech styling, opaque magic, over
 3. Escalate uncertainty visibly and safely.
 4. Preserve customer context so the conversation moves forward.
 5. Give managers a truthful operational picture, not vanity metrics.
+6. Treat delivery as a durable workflow with visible retries and outcomes.
+7. Turn human corrections into an explicit evaluation and release signal.
 
 ## Accessibility & Inclusion
 

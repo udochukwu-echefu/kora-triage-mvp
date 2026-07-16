@@ -53,14 +53,19 @@ class TriageService:
         self.model = model
         self.manual_baseline_minutes = manual_baseline_minutes
 
-    async def triage(self, request: TriageRequest) -> TriageResult:
+    async def triage(
+        self, request: TriageRequest, tenant_id: str = "tenant-demo"
+    ) -> TriageResult:
         started_at = perf_counter()
         safe_request, deterministic = _redacted_request(request)
-        memories = self.database.memories_for(request.customer.customer_id)
+        memories = self.database.memories_for(
+            request.customer.customer_id, tenant_id=tenant_id
+        )
         model_result = await self.model.classify(safe_request, memories)
         automation = self.database.get_setting(
             "automation",
             {"enabled": True, "auto_approve_threshold": 95, "mandatory_review_threshold": 70},
+            tenant_id,
         )
         processing_ms = round((perf_counter() - started_at) * 1000)
         estimated_minutes_saved = round(
@@ -116,13 +121,18 @@ class TriageService:
             decision=decision,
             guardrails=guardrails,
             actor="groq-model",
+            tenant_id=tenant_id,
         )
         memory_summary = (
             f"{model_result.intent.value}; {model_result.urgency.value} urgency; "
             f"route {model_result.route.value}; case {request.case_id}."
         )
         self.database.add_memory(
-            request.customer.customer_id, request.case_id, memory_summary, entities
+            request.customer.customer_id,
+            request.case_id,
+            memory_summary,
+            entities,
+            tenant_id=tenant_id,
         )
         auto_approved = (
             automation["enabled"]
@@ -167,6 +177,7 @@ class TriageService:
                 },
                 guardrails={"escalated": False, "flags": []},
                 actor="automation-policy",
+                tenant_id=tenant_id,
             )
         self.database.update_support_ticket_triage(
             request.case_id,
@@ -188,5 +199,6 @@ class TriageService:
                 "processingMs": result.processing_ms,
                 "estimatedMinutesSaved": result.estimated_minutes_saved,
             },
+            tenant_id,
         )
         return result

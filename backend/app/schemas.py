@@ -43,6 +43,20 @@ class Route(str, Enum):
     general_support = "General Support"
 
 
+class LifecycleStatus(str, Enum):
+    new = "new"
+    triaged = "triaged"
+    review_required = "review_required"
+    approved = "approved"
+    queued = "queued"
+    sent = "sent"
+    delivered = "delivered"
+    replied = "replied"
+    resolved = "resolved"
+    reopened = "reopened"
+    failed = "failed"
+
+
 class ExtractedEntities(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -133,3 +147,45 @@ class AutomationSettings(BaseModel):
     enabled: bool = True
     auto_approve_threshold: int = Field(default=95, ge=80, le=99)
     mandatory_review_threshold: int = Field(default=70, ge=50, le=90)
+
+
+class InboundMessageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str = Field(min_length=1, max_length=200)
+    provider_message_id: str = Field(min_length=1, max_length=200)
+    channel: str = Field(pattern="^(whatsapp|email)$")
+    sender: str = Field(min_length=1, max_length=320)
+    customer_name: str = Field(default="Customer", min_length=1, max_length=120)
+    message: str = Field(min_length=1, max_length=8000)
+    subject: str | None = Field(default=None, max_length=500)
+    external_thread_id: str | None = Field(default=None, max_length=300)
+
+
+class FeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actor: str = Field(default="support-agent", min_length=1, max_length=120)
+    customer_id: str = Field(min_length=1, max_length=80)
+    corrected_intent: Intent | None = None
+    corrected_urgency: Urgency | None = None
+    corrected_route: Route | None = None
+    response_accepted: bool | None = None
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class ResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actor: str = Field(default="support-agent", min_length=1, max_length=120)
+    customer_id: str = Field(min_length=1, max_length=80)
+    resolution: str = Field(min_length=2, max_length=1000)
+
+
+class DeliveryEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str = Field(min_length=1, max_length=200)
+    provider_message_id: str = Field(min_length=1, max_length=200)
+    status: str = Field(pattern="^(sent|delivered|bounced|failed)$")
+    detail: str | None = Field(default=None, max_length=1000)

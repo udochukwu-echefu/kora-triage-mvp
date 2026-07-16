@@ -5,9 +5,11 @@ import {
 import { Badge } from "./ui/badge";
 import { Card, CardContent, CardHeader } from "./ui/card";
 
-export default function InsightsView({ tickets }) {
+const percent = (value) => value == null ? "Not enough data" : `${Math.round(value * 100)}%`;
+
+export default function InsightsView({ tickets, evaluationSummary, evaluationGate }) {
   const live = tickets.filter((ticket) => ticket.source && ticket.source !== "pending");
-  const evaluation = live.map((ticket) => ({
+  const evaluation = live.filter((ticket) => ticket.truthIntent !== "Unlabelled").map((ticket) => ({
     case: ticket.id.replace("KOR-", ""),
     accuracy: Math.round(
       (Number(ticket.intent === ticket.truthIntent) + Number(ticket.urgency === ticket.truthUrgency))
@@ -28,6 +30,14 @@ export default function InsightsView({ tickets }) {
       <div className="mb-7 flex items-end justify-between">
         <div><p className="section-label">Processed model runs</p><h2 className="mt-1 text-[24px] font-extrabold tracking-[-0.05em]">Operational performance</h2></div>
         <Badge variant="accent" shape="pill"><span className="size-1.5 rounded-full bg-current" />{live.length} processed</Badge>
+      </div>
+      <div className="mb-5 grid border border-line-strong bg-line-strong sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          ["Intent accuracy", percent(evaluationSummary?.intent_accuracy), `${evaluationSummary?.labelled || 0} labelled cases`],
+          ["Draft edit rate", percent(evaluationSummary?.draft_edit_rate), "Human-reviewed replies"],
+          ["Routing corrections", percent(evaluationSummary?.routing_correction_rate), "Model route overrides"],
+          ["Release gate", evaluationGate?.passed ? "Passing" : "Review", evaluationGate?.passed ? "No threshold regressions" : "One or more checks failed"]
+        ].map(([label, value, note]) => <div key={label} className="bg-paper px-5 py-4"><p className="section-label">{label}</p><strong className="mt-2 block text-[18px] font-extrabold tracking-[-0.04em]">{value}</strong><span className="mt-1 block text-[9px] text-ink-faint">{note}</span></div>)}
       </div>
       <div className="grid gap-5 xl:grid-cols-[1.4fr_.6fr]">
         <Card>
