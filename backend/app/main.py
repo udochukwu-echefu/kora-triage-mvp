@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
 import hmac
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -19,14 +22,23 @@ from .config import settings
 from .database import Database
 from .demo_seed import seed_demo_data
 from .evaluation import evaluation_summary, regression_gate
+from .evaluation_dataset import dataset_summary
 from .groq_triage import GroqTriageModel
+from .launch_features import PaystackVerifier, proof_report
 from .schemas import (
     ActionRequest,
     AutomationSettings,
+    CaseAssignmentRequest,
+    CaseNoteRequest,
     FeedbackRequest,
     InboundMessageRequest,
+    KnowledgePolicyRequest,
+    ManualAssessmentRequest,
+    PolicyStateRequest,
+    ProofRunRequest,
     ResolveRequest,
     RouteRequest,
+    TransactionVerifyRequest,
     TriageRequest,
     TriageResult,
 )
@@ -116,16 +128,69 @@ def validated_case(
 
 
 def verify_webhook_token(received: str | None) -> None:
-    if settings.webhook_token and not hmac.compare_digest(
-        received or "", settings.webhook_token
-    ):
+    if not settings.webhook_token:
+        if settings.channel_mode == "live":
+            raise HTTPException(
+                status_code=503,
+                detail="KORA_WEBHOOK_TOKEN must be configured in live channel mode.",
+            )
+        return
+    if not hmac.compare_digest(received or "", settings.webhook_token):
         raise HTTPException(status_code=401, detail="Invalid webhook token.")
+
+
+def verify_postmark_webhook(
+    authorization: str | None, fallback_token: str | None
+) -> None:
+    if settings.postmark_webhook_username and settings.postmark_webhook_password:
+        try:
+            scheme, encoded = (authorization or "").split(" ", 1)
+            decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
+            username, password = decoded.split(":", 1)
+        except (ValueError, UnicodeDecodeError, binascii.Error):
+            raise HTTPException(
+                status_code=401, detail="Invalid Postmark webhook credentials."
+            ) from None
+        valid = scheme.lower() == "basic" and hmac.compare_digest(
+            username, settings.postmark_webhook_username
+        ) and hmac.compare_digest(password, settings.postmark_webhook_password)
+        if not valid:
+            raise HTTPException(
+                status_code=401, detail="Invalid Postmark webhook credentials."
+            )
+        return
+    verify_webhook_token(fallback_token)
+
+
+def _message_reference(value: str | None) -> str | None:
+    if not value:
+        return None
+    references = [item.strip().strip("<>") for item in value.split() if item.strip()]
+    return references[-1] if references else None
+
+
+def verify_whatsapp_signature(raw: bytes, received: str | None) -> None:
+    if settings.channel_mode == "live" and not settings.whatsapp_app_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="WHATSAPP_APP_SECRET must be configured in live channel mode.",
+        )
+    if not settings.whatsapp_app_secret:
+        return
+    expected = "sha256=" + hmac.new(
+        settings.whatsapp_app_secret.encode("utf-8"), raw, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(received or "", expected):
+        raise HTTPException(status_code=401, detail="Invalid WhatsApp signature.")
 
 
 @app.get("/api/health")
 async def health() -> dict:
+    counts = database.job_counts(settings.default_tenant_id)
+    degraded = not settings.groq_api_key or counts.get("dead", 0) > 0
     return {
-        "status": "ready" if settings.groq_api_key else "configuration_required",
+        "status": "degraded" if degraded else "ready",
+        "operational_mode": "manual" if not settings.groq_api_key else "ai_assisted",
         "provider": "groq",
         "model": settings.groq_model,
         "configured": bool(settings.groq_api_key),
@@ -133,7 +198,18 @@ async def health() -> dict:
         "guardrails": "enabled",
         "auth_mode": settings.auth_mode,
         "channels": gateway.status(),
-        "jobs": database.job_counts(settings.default_tenant_id),
+        "paystack": {
+            "configured": bool(settings.paystack_secret_key),
+            "mode": "read_only",
+        },
+        "jobs": counts,
+        "alert": (
+            "AI unavailable. Inbound cases remain available for manual handling."
+            if not settings.groq_api_key
+            else f"{counts.get('dead', 0)} workflow jobs require manual review."
+            if counts.get("dead", 0)
+            else None
+        ),
     }
 
 
@@ -155,6 +231,11 @@ async def integrations(principal: Principal = Depends(current_principal)) -> dic
         "worker_enabled": settings.worker_enabled,
         "jobs": database.job_counts(principal.tenant_id),
         "webhook_protected": bool(settings.webhook_token),
+        "paystack": {
+            "provider": "Paystack",
+            "configured": bool(settings.paystack_secret_key),
+            "mode": "read_only",
+        },
     }
 
 
@@ -190,6 +271,144 @@ async def cases(principal: Principal = Depends(current_principal)) -> dict:
         if lifecycle:
             item["lifecycle"] = lifecycle
     return {"items": items}
+
+
+@app.get("/api/policies")
+async def policies(principal: Principal = Depends(current_principal)) -> dict:
+    return {"items": database.policies(principal.tenant_id)}
+
+
+@app.post("/api/policies", status_code=201)
+async def create_policy(
+    value: KnowledgePolicyRequest,
+    principal: Principal = Depends(manager_principal),
+) -> dict:
+    policy = database.add_policy(
+        tenant_id=principal.tenant_id,
+        **value.model_dump(),
+    )
+    database.add_audit(
+        case_id="POLICY",
+        customer_id="workspace",
+        event_type="policy_created",
+        model=None,
+        request={},
+        decision={
+            "policy_id": policy["id"],
+            "title": policy["title"],
+            "version": policy["version"],
+        },
+        guardrails={},
+        actor=principal.display_name,
+        tenant_id=principal.tenant_id,
+    )
+    return policy
+
+
+@app.put("/api/policies/{policy_id}/state")
+async def update_policy_state(
+    policy_id: int,
+    value: PolicyStateRequest,
+    principal: Principal = Depends(manager_principal),
+) -> dict:
+    policy = database.set_policy_active(
+        policy_id, value.active, principal.tenant_id
+    )
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found.")
+    return policy
+
+
+@app.get("/api/proof-runs")
+async def proof_runs(principal: Principal = Depends(manager_principal)) -> dict:
+    return {"items": database.proof_runs(principal.tenant_id)}
+
+
+@app.post("/api/proof-runs")
+async def run_proof(
+    value: ProofRunRequest,
+    principal: Principal = Depends(manager_principal),
+) -> dict:
+    service = get_service()
+    settings_value = database.get_setting(
+        "automation",
+        {"enabled": True, "auto_approve_threshold": 95, "mandatory_review_threshold": 70},
+        principal.tenant_id,
+    )
+    rows = []
+    proof_tenant = f"{principal.tenant_id}:proof"
+    for index, case in enumerate(value.cases):
+        try:
+            result = await service.triage(
+                TriageRequest(
+                    case_id=f"PROOF-{index + 1}-{case.case_id}"[:80],
+                    channel=case.channel,
+                    message=case.message,
+                    subject=case.subject,
+                    customer={
+                        "customer_id": f"proof-customer-{index + 1}",
+                        "name": case.customer_name,
+                        "previous_context": "",
+                        "notes": ["Historical proof-mode case. Never deliver externally."],
+                    },
+                ),
+                tenant_id=proof_tenant,
+                policy_tenant_id=principal.tenant_id,
+            )
+            expected = (
+                {
+                    key: item.value if hasattr(item, "value") else item
+                    for key, item in case.expected.model_dump().items()
+                }
+                if case.expected
+                else None
+            )
+            rows.append(
+                {
+                    "case_id": case.case_id,
+                    "language": case.language,
+                    "expected": expected,
+                    "predicted": {
+                        "intent": result.intent.value,
+                        "urgency": result.urgency.value,
+                        "route": result.route.value,
+                        "confidence": result.confidence,
+                        "escalated": result.escalated,
+                    },
+                }
+            )
+        except Exception as error:
+            rows.append(
+                {
+                    "case_id": case.case_id,
+                    "language": case.language,
+                    "error": str(error),
+                }
+            )
+    report = proof_report(
+        rows, auto_threshold=settings_value["auto_approve_threshold"]
+    )
+    run = database.add_proof_run(
+        tenant_id=principal.tenant_id,
+        name=value.name,
+        status="complete" if not report["failed"] else "complete_with_errors",
+        report=report,
+    )
+    database.add_audit(
+        case_id=f"PROOF-{run['id']}",
+        customer_id="workspace",
+        event_type="proof_run_completed",
+        model=settings.groq_model,
+        request={"cases": len(value.cases)},
+        decision={
+            "readiness_score": report["readiness_score"],
+            "recommendation": report["recommendation"],
+        },
+        guardrails={"silent_mode": True, "external_delivery": False},
+        actor=principal.display_name,
+        tenant_id=principal.tenant_id,
+    )
+    return run
 
 
 @app.get("/api/settings/automation", response_model=AutomationSettings)
@@ -366,6 +585,202 @@ async def route_case(
     return {"case_id": case_id, "status": "routed", "route": action.team, "audit_id": audit_id}
 
 
+@app.put("/api/cases/{case_id}/assignment")
+async def assign_case(
+    case_id: str,
+    action: CaseAssignmentRequest,
+    principal: Principal = Depends(current_principal),
+) -> dict:
+    ticket = database.support_ticket(case_id, principal.tenant_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Case not found.")
+    assignee = action.assignee
+    claiming_self = assignee == "me"
+    if claiming_self:
+        assignee = principal.display_name
+    try:
+        lifecycle = database.claim_case(
+            case_id,
+            tenant_id=principal.tenant_id,
+            assignee=assignee,
+            expected_assignee=(
+                "__unassigned__"
+                if claiming_self and action.expected_assignee is None
+                else action.expected_assignee
+            ),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Case ownership changed. It is currently assigned to {error}.",
+        ) from error
+    database.update_support_ticket_fields(
+        case_id,
+        {
+            "assignee": assignee,
+            "status": f"Assigned to {assignee}" if assignee else "Unassigned",
+        },
+        principal.tenant_id,
+    )
+    database.add_audit(
+        case_id=case_id,
+        customer_id=ticket["customerId"],
+        event_type="case_assignment_changed",
+        model=None,
+        request={"expected_assignee": action.expected_assignee},
+        decision={"assignee": assignee},
+        guardrails={"collision_checked": action.expected_assignee is not None},
+        actor=principal.display_name,
+        tenant_id=principal.tenant_id,
+    )
+    return {"case_id": case_id, "assignee": assignee, "lifecycle": lifecycle}
+
+
+@app.get("/api/cases/{case_id}/notes")
+async def case_notes(
+    case_id: str, principal: Principal = Depends(current_principal)
+) -> dict:
+    if not database.support_ticket(case_id, principal.tenant_id):
+        raise HTTPException(status_code=404, detail="Case not found.")
+    return {"items": database.case_notes(case_id, principal.tenant_id)}
+
+
+@app.post("/api/cases/{case_id}/notes", status_code=201)
+async def add_case_note(
+    case_id: str,
+    value: CaseNoteRequest,
+    principal: Principal = Depends(current_principal),
+) -> dict:
+    ticket = database.support_ticket(case_id, principal.tenant_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Case not found.")
+    note = database.add_case_note(
+        case_id=case_id,
+        tenant_id=principal.tenant_id,
+        actor=principal.display_name,
+        body=value.body,
+        mentions=value.mentions,
+    )
+    database.add_audit(
+        case_id=case_id,
+        customer_id=ticket["customerId"],
+        event_type="internal_note_added",
+        model=None,
+        request={},
+        decision={"note_id": note["id"], "mentions": note["mentions"]},
+        guardrails={"customer_visible": False},
+        actor=principal.display_name,
+        tenant_id=principal.tenant_id,
+    )
+    return note
+
+
+@app.post("/api/cases/{case_id}/verify-transaction")
+async def verify_transaction(
+    case_id: str,
+    value: TransactionVerifyRequest,
+    principal: Principal = Depends(current_principal),
+) -> dict:
+    latest = validated_case(case_id, value.customer_id, principal.tenant_id)
+    extracted = latest["decision"].get("entities", {}).get("transactionId")
+    if not extracted or extracted.lower() != value.reference.lower():
+        raise HTTPException(
+            status_code=409,
+            detail="Verification is restricted to the transaction reference extracted from this case.",
+        )
+    if not settings.paystack_secret_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Paystack read-only verification is not configured.",
+        )
+    try:
+        result = await PaystackVerifier(
+            settings.paystack_secret_key, settings.paystack_base_url
+        ).verify(value.reference)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except (httpx.HTTPError, RuntimeError) as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    audit_id = database.add_audit(
+        case_id=case_id,
+        customer_id=value.customer_id,
+        event_type="transaction_verified",
+        model=None,
+        request={"provider": "Paystack", "reference": value.reference},
+        decision=result,
+        guardrails={"read_only": True, "financial_action": False},
+        actor=principal.display_name,
+        tenant_id=principal.tenant_id,
+    )
+    database.update_support_ticket_fields(
+        case_id,
+        {"verifiedTransaction": result},
+        principal.tenant_id,
+    )
+    return {**result, "audit_id": audit_id}
+
+
+@app.post("/api/cases/{case_id}/manual-assessment")
+async def manual_assessment(
+    case_id: str,
+    value: ManualAssessmentRequest,
+    principal: Principal = Depends(current_principal),
+) -> dict:
+    ticket = database.support_ticket(case_id, principal.tenant_id)
+    if not ticket or ticket["customerId"] != value.customer_id:
+        raise HTTPException(status_code=404, detail="Case not found.")
+    decision = {
+        "intent": value.intent.value,
+        "urgency": value.urgency.value,
+        "sentiment": "human reviewed",
+        "route": value.route.value,
+        "confidence": 1,
+        "entities": {},
+        "memory_used": False,
+        "evidence": ["Manual assessment recorded while AI assistance was unavailable."],
+        "response": value.response,
+        "policy_citations": [],
+    }
+    audit_id = database.add_audit(
+        case_id=case_id,
+        customer_id=value.customer_id,
+        event_type="manual_triage",
+        model=None,
+        request={},
+        decision=decision,
+        guardrails={"human_owned": True, "auto_approval": False},
+        actor=principal.display_name,
+        tenant_id=principal.tenant_id,
+    )
+    database.update_support_ticket_triage(
+        case_id,
+        {
+            **decision,
+            "memoryUsed": False,
+            "escalated": False,
+            "escalationReason": None,
+            "status": "Manual draft ready",
+            "source": "human",
+            "model": None,
+            "processingMs": 0,
+            "estimatedMinutesSaved": 0,
+            "policyCitations": [],
+        },
+        principal.tenant_id,
+    )
+    lifecycle = database.set_lifecycle(
+        case_id, "review_required", tenant_id=principal.tenant_id
+    )
+    return {
+        "case_id": case_id,
+        "audit_id": audit_id,
+        "lifecycle": lifecycle,
+        "ticket": database.support_ticket(case_id, principal.tenant_id),
+    }
+
+
 @app.get("/api/cases/{case_id}/conversation")
 async def case_conversation(
     case_id: str, principal: Principal = Depends(current_principal)
@@ -376,6 +791,7 @@ async def case_conversation(
         "case_id": case_id,
         "lifecycle": database.lifecycle(case_id, principal.tenant_id),
         "messages": database.conversation(case_id, principal.tenant_id),
+        "notes": database.case_notes(case_id, principal.tenant_id),
     }
 
 
@@ -454,6 +870,13 @@ async def evaluations(principal: Principal = Depends(current_principal)) -> dict
     return evaluation_summary(database, principal.tenant_id)
 
 
+@app.get("/api/evaluations/dataset")
+async def evaluation_dataset(
+    _: Principal = Depends(manager_principal),
+) -> dict:
+    return dataset_summary()
+
+
 @app.get("/api/evaluations/gate")
 async def evaluation_gate(
     _: Principal = Depends(manager_principal),
@@ -500,9 +923,10 @@ def _postmark_header(payload: dict, name: str) -> str | None:
 @app.post("/api/webhooks/postmark/inbound", status_code=202)
 async def postmark_inbound(
     payload: dict,
+    authorization: str | None = Header(default=None),
     x_kora_webhook_token: str | None = Header(default=None, alias="X-Kora-Webhook-Token"),
 ) -> dict:
-    verify_webhook_token(x_kora_webhook_token)
+    verify_postmark_webhook(authorization, x_kora_webhook_token)
     message_id = str(payload.get("MessageID") or "")
     sender = str(payload.get("From") or "")
     body = str(payload.get("TextBody") or "").strip()
@@ -517,7 +941,10 @@ async def postmark_inbound(
             customer_name=str(payload.get("FromName") or sender.split("@", 1)[0]),
             message=body,
             subject=payload.get("Subject"),
-            external_thread_id=_postmark_header(payload, "In-Reply-To"),
+            external_thread_id=_message_reference(
+                _postmark_header(payload, "In-Reply-To")
+                or _postmark_header(payload, "References")
+            ),
         ),
         provider="postmark",
         tenant_id=settings.default_tenant_id,
@@ -527,9 +954,10 @@ async def postmark_inbound(
 @app.post("/api/webhooks/postmark/delivery")
 async def postmark_delivery(
     payload: dict,
+    authorization: str | None = Header(default=None),
     x_kora_webhook_token: str | None = Header(default=None, alias="X-Kora-Webhook-Token"),
 ) -> dict:
-    verify_webhook_token(x_kora_webhook_token)
+    verify_postmark_webhook(authorization, x_kora_webhook_token)
     message_id = str(payload.get("MessageID") or "")
     record_type = str(payload.get("RecordType") or "").lower()
     status_value = "delivered" if record_type == "delivery" else "failed" if record_type == "bounce" else "sent"
@@ -615,12 +1043,7 @@ async def whatsapp_inbound(
     x_hub_signature_256: str | None = Header(default=None, alias="X-Hub-Signature-256"),
 ) -> dict:
     raw = await request.body()
-    if settings.whatsapp_app_secret:
-        expected = "sha256=" + hmac.new(
-            settings.whatsapp_app_secret.encode("utf-8"), raw, hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(x_hub_signature_256 or "", expected):
-            raise HTTPException(status_code=401, detail="Invalid WhatsApp signature.")
+    verify_whatsapp_signature(raw, x_hub_signature_256)
     payload = json.loads(raw or b"{}")
     results = []
     delivery_results = []

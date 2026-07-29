@@ -122,6 +122,7 @@ class TriageResult(BaseModel):
     audit_id: int
     processing_ms: int
     estimated_minutes_saved: float
+    policy_citations: list[dict] = Field(default_factory=list)
 
 
 class ActionRequest(BaseModel):
@@ -189,3 +190,76 @@ class DeliveryEventRequest(BaseModel):
     provider_message_id: str = Field(min_length=1, max_length=200)
     status: str = Field(pattern="^(sent|delivered|bounced|failed)$")
     detail: str | None = Field(default=None, max_length=1000)
+
+
+class KnowledgePolicyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=3, max_length=160)
+    content: str = Field(min_length=20, max_length=30_000)
+    source_url: str | None = Field(default=None, max_length=1000)
+    version: str = Field(default="1.0", min_length=1, max_length=40)
+
+
+class PolicyStateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    active: bool
+
+
+class CaseAssignmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assignee: str | None = Field(default=None, max_length=120)
+    expected_assignee: str | None = Field(default=None, max_length=120)
+
+
+class CaseNoteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    body: str = Field(min_length=2, max_length=2000)
+    mentions: list[str] = Field(default_factory=list, max_length=20)
+
+
+class TransactionVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: str = Field(min_length=1, max_length=80)
+    reference: str = Field(min_length=3, max_length=100)
+
+
+class ManualAssessmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: str = Field(min_length=1, max_length=80)
+    intent: Intent
+    urgency: Urgency
+    route: Route
+    response: str = Field(min_length=2, max_length=1200)
+
+
+class ProofExpected(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    intent: Intent | None = None
+    urgency: Urgency | None = None
+    route: Route | None = None
+
+
+class ProofCase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str = Field(min_length=1, max_length=80)
+    channel: str = Field(pattern="^(whatsapp|email)$")
+    message: str = Field(min_length=1, max_length=8000)
+    subject: str | None = Field(default=None, max_length=500)
+    language: str = Field(default="unspecified", max_length=40)
+    customer_name: str = Field(default="Historical customer", max_length=120)
+    expected: ProofExpected | None = None
+
+
+class ProofRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(default="Historical inbox proof", min_length=3, max_length=160)
+    cases: list[ProofCase] = Field(min_length=1, max_length=100)

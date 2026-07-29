@@ -147,6 +147,43 @@ CREATE TABLE IF NOT EXISTS case_sequence (
     name TEXT PRIMARY KEY,
     next_value INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS knowledge_policy (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source_url TEXT,
+    version TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_policy_tenant_active
+ON knowledge_policy(tenant_id, active, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS case_note (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL,
+    case_id TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    body TEXT NOT NULL,
+    mentions_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_case_note_case
+ON case_note(tenant_id, case_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS proof_run (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_proof_run_tenant
+ON proof_run(tenant_id, created_at DESC);
 """
 
 
@@ -531,6 +568,19 @@ class Database:
             ).fetchone()
         return row["case_id"] if row else None
 
+    def find_case_by_message_reference(
+        self, reference: str, tenant_id: str = "tenant-demo"
+    ) -> str | None:
+        """Resolve an email reply to either an inbound or Kora outbound Message-ID."""
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT case_id FROM support_message WHERE tenant_id = ? "
+                "AND (provider_message_id = ? OR external_thread_id = ?) "
+                "ORDER BY created_at DESC LIMIT 1",
+                (tenant_id, reference, reference),
+            ).fetchone()
+        return row["case_id"] if row else None
+
     def set_lifecycle(
         self,
         case_id: str,
@@ -806,3 +856,161 @@ class Database:
                 (stored_key, json.dumps(value), datetime.now(UTC).isoformat()),
             )
         return value
+
+    def add_policy(
+        self,
+        *,
+        tenant_id: str,
+        title: str,
+        content: str,
+        source_url: str | None,
+        version: str,
+    ) -> dict:
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO knowledge_policy "
+                "(tenant_id, title, content, source_url, version, active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                (tenant_id, title, content, source_url, version, now, now),
+            )
+            policy_id = int(cursor.lastrowid)
+        return self.policy(policy_id, tenant_id)
+
+    def policy(self, policy_id: int, tenant_id: str) -> dict | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM knowledge_policy WHERE id = ? AND tenant_id = ?",
+                (policy_id, tenant_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def policies(self, tenant_id: str, active_only: bool = False) -> list[dict]:
+        query = "SELECT * FROM knowledge_policy WHERE tenant_id = ?"
+        values: list[object] = [tenant_id]
+        if active_only:
+            query += " AND active = 1"
+        query += " ORDER BY updated_at DESC, id DESC"
+        with self.connect() as connection:
+            rows = connection.execute(query, values).fetchall()
+        return [dict(row) for row in rows]
+
+    def set_policy_active(
+        self, policy_id: int, active: bool, tenant_id: str
+    ) -> dict | None:
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE knowledge_policy SET active = ?, updated_at = ? "
+                "WHERE id = ? AND tenant_id = ?",
+                (int(active), datetime.now(UTC).isoformat(), policy_id, tenant_id),
+            )
+        return self.policy(policy_id, tenant_id)
+
+    def claim_case(
+        self,
+        case_id: str,
+        *,
+        tenant_id: str,
+        assignee: str | None,
+        expected_assignee: str | None = None,
+    ) -> dict:
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT assigned_to FROM case_lifecycle "
+                "WHERE case_id = ? AND tenant_id = ?",
+                (case_id, tenant_id),
+            ).fetchone()
+            if not row:
+                raise ValueError("Case lifecycle does not exist")
+            current = row["assigned_to"]
+            if expected_assignee == "__unassigned__":
+                if current is not None:
+                    raise RuntimeError(current)
+            elif expected_assignee is not None and current != expected_assignee:
+                raise RuntimeError(current or "unassigned")
+            connection.execute(
+                "UPDATE case_lifecycle SET assigned_to = ?, updated_at = ? "
+                "WHERE case_id = ? AND tenant_id = ?",
+                (assignee, now, case_id, tenant_id),
+            )
+        return self.lifecycle(case_id, tenant_id) or {}
+
+    def add_case_note(
+        self,
+        *,
+        case_id: str,
+        tenant_id: str,
+        actor: str,
+        body: str,
+        mentions: list[str],
+    ) -> dict:
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO case_note "
+                "(tenant_id, case_id, actor, body, mentions_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (tenant_id, case_id, actor, body, json.dumps(mentions), now),
+            )
+            note_id = int(cursor.lastrowid)
+            row = connection.execute(
+                "SELECT * FROM case_note WHERE id = ?", (note_id,)
+            ).fetchone()
+        item = dict(row)
+        item["mentions"] = json.loads(item.pop("mentions_json"))
+        return item
+
+    def case_notes(self, case_id: str, tenant_id: str) -> list[dict]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM case_note WHERE tenant_id = ? AND case_id = ? "
+                "ORDER BY created_at DESC, id DESC",
+                (tenant_id, case_id),
+            ).fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            item["mentions"] = json.loads(item.pop("mentions_json"))
+            items.append(item)
+        return items
+
+    def add_proof_run(
+        self, *, tenant_id: str, name: str, status: str, report: dict
+    ) -> dict:
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO proof_run (tenant_id, name, status, report_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (tenant_id, name, status, json.dumps(report), now),
+            )
+            run_id = int(cursor.lastrowid)
+        return {
+            "id": run_id,
+            "tenant_id": tenant_id,
+            "name": name,
+            "status": status,
+            "report": report,
+            "created_at": now,
+        }
+
+    def proof_runs(self, tenant_id: str, limit: int = 20) -> list[dict]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM proof_run WHERE tenant_id = ? "
+                "ORDER BY created_at DESC, id DESC LIMIT ?",
+                (tenant_id, limit),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "tenant_id": row["tenant_id"],
+                "name": row["name"],
+                "status": row["status"],
+                "report": json.loads(row["report_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]

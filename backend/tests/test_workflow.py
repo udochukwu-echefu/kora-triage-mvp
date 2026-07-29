@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 from pathlib import Path
 
 import pytest
@@ -7,12 +10,15 @@ from fastapi import HTTPException
 
 from app import main
 from app.auth import resolve_principal, token_hash
+from app.benchmark import score_predictions
 from app.channels import ChannelGateway
 from app.config import Settings
 from app.database import Database
 from app.demo_seed import seed_demo_data
 from app.evaluation import evaluation_summary, regression_gate
+from app.evaluation_dataset import GOLD_CASES, dataset_summary
 from app.schemas import (
+    CustomerContext,
     ExtractedEntities,
     InboundMessageRequest,
     Intent,
@@ -22,6 +28,7 @@ from app.schemas import (
     TriageRequest,
     Urgency,
 )
+from app.triage_policy import apply_operational_policy
 from app.service import TriageService
 from app.workflow import SupportWorkflow, WorkflowWorker
 
@@ -100,6 +107,46 @@ def test_inbound_events_are_idempotent_threaded_and_tenant_isolated(
     assert other_tenant["duplicate"] is False
     assert other_tenant["case_id"] != first["case_id"]
     assert database.support_ticket(first["case_id"], "tenant-b") is None
+
+
+def test_email_reply_resolves_the_case_from_kora_outbound_message_id(
+    tmp_path: Path,
+) -> None:
+    database = Database(tmp_path / "kora.db")
+    database.initialize()
+    workflow = SupportWorkflow(database)
+    accepted = workflow.ingest(
+        inbound("event-1", "inbound-1", thread_id="original-thread"),
+        provider="postmark",
+        tenant_id="tenant-a",
+    )
+    database.add_message(
+        message_id="outbound-row",
+        case_id=accepted["case_id"],
+        tenant_id="tenant-a",
+        customer_id=accepted["customer_id"],
+        channel="email",
+        direction="outbound",
+        provider="postmark",
+        provider_message_id="kora-outbound-message",
+        external_thread_id="original-thread",
+        contact="customer@example.com",
+        body="We are reviewing your request.",
+        delivery_status="sent",
+    )
+
+    reply = workflow.ingest(
+        inbound(
+            "event-2",
+            "inbound-2",
+            thread_id="kora-outbound-message",
+        ),
+        provider="postmark",
+        tenant_id="tenant-a",
+    )
+
+    assert reply["case_id"] == accepted["case_id"]
+    assert len(database.conversation(accepted["case_id"], "tenant-a")) == 3
 
 
 @pytest.mark.asyncio
@@ -255,3 +302,128 @@ def test_delivery_receipt_updates_message_lifecycle_and_audit(
     assert database.lifecycle(accepted["case_id"])["state"] == "delivered"
     assert database.conversation(accepted["case_id"])[-1]["delivery_status"] == "delivered"
     assert database.audit_event_exists(accepted["case_id"], "delivery_updated")
+
+
+def test_gold_dataset_has_100_cases_and_required_operational_coverage() -> None:
+    summary = dataset_summary()
+    assert len(GOLD_CASES) == 100
+    assert summary["cases"] == 100
+    assert set(summary["languages"]) == {"english", "mixed", "pidgin"}
+    assert set(summary["channels"]) == {"email", "whatsapp"}
+    assert set(summary["domains"]) == {
+        "account_issue",
+        "billing_dispute",
+        "delivery_complaint",
+        "duplicate_charge",
+        "fraud_unauthorised",
+        "transfer_dispute",
+    }
+
+
+def test_benchmark_scores_route_and_normalised_entities() -> None:
+    case = GOLD_CASES[0]
+    report = score_predictions(
+        [case],
+        {
+            case.case_id: {
+                "intent": case.intent,
+                "urgency": case.urgency,
+                "route": case.route,
+                "entities": {
+                    **case.entities,
+                    "amount": "NGN 45,000",
+                },
+            }
+        },
+    )
+    assert report["combined_accuracy"] == 1
+    assert report["entity_required_accuracy"] == 1
+    assert report["entity_exact_match"] == 1
+    assert report["failures"] == []
+    assert report["fraud_recall"] is None
+    assert report["release_gate"]["passed"] is False
+
+
+@pytest.mark.parametrize("case", GOLD_CASES, ids=lambda case: case.case_id)
+def test_operational_policy_matches_gold_routing_and_urgency(case) -> None:
+    expected = case.entities
+    request = TriageRequest(
+        case_id=case.case_id,
+        channel=case.channel,
+        subject=case.subject,
+        message=case.message,
+        customer=CustomerContext(customer_id="policy-test", name="Test Customer"),
+    )
+    model_result = ModelTriage(
+        intent=Intent(case.intent),
+        urgency=Urgency.critical,
+        sentiment=Sentiment.concerned,
+        route=Route.general_support,
+        confidence=0.9,
+        entities=ExtractedEntities(
+            amount=expected["amount"],
+            transaction_id=expected["transactionId"],
+            order_id=expected["orderId"],
+            account_last4=(
+                "".join(filter(str.isdigit, expected["account"]))[-4:]
+                if expected["account"]
+                else None
+            ),
+            card_last4=(
+                "".join(filter(str.isdigit, expected["card"]))[-4:]
+                if expected["card"]
+                else None
+            ),
+        ),
+        memory_used=False,
+        evidence=["Customer message provides the complaint type."],
+        draft_response="Hello Customer, we received your message.",
+    )
+    result = apply_operational_policy(request, model_result).triage
+    assert result.route.value == case.route
+    assert result.urgency.value == case.urgency
+
+
+def test_live_generic_webhook_fails_closed_without_a_secret(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "settings",
+        Settings(channel_mode="live", webhook_token=None),
+    )
+    with pytest.raises(HTTPException) as error:
+        main.verify_webhook_token(None)
+    assert error.value.status_code == 503
+
+
+def test_postmark_supports_basic_auth_for_provider_webhooks(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "settings",
+        Settings(
+            channel_mode="live",
+            postmark_webhook_username="kora",
+            postmark_webhook_password="secret",
+        ),
+    )
+    credentials = base64.b64encode(b"kora:secret").decode("ascii")
+    main.verify_postmark_webhook(f"Basic {credentials}", None)
+    with pytest.raises(HTTPException) as error:
+        main.verify_postmark_webhook("Basic bad", None)
+    assert error.value.status_code == 401
+
+
+def test_whatsapp_signature_uses_the_exact_raw_request_body(monkeypatch) -> None:
+    raw = b'{"entry":[{"id":"1"}],"object":"whatsapp_business_account"}'
+    secret = "whatsapp-secret"
+    signature = "sha256=" + hmac.new(
+        secret.encode("utf-8"), raw, hashlib.sha256
+    ).hexdigest()
+    monkeypatch.setattr(
+        main,
+        "settings",
+        Settings(channel_mode="live", whatsapp_app_secret=secret),
+    )
+    main.verify_whatsapp_signature(raw, signature)
+    with pytest.raises(HTTPException) as error:
+        main.verify_whatsapp_signature(raw + b" ", signature)
+    assert error.value.status_code == 401

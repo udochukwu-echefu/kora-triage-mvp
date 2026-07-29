@@ -28,9 +28,42 @@ Rules:
 - Set memory_used true only when prior context materially avoids re-asking for information.
 - Evidence must be short observable reasons, not private chain-of-thought.
 - Confidence represents classification certainty, not confidence that the complaint is factually true.
-- Route fraud or unauthorised transactions to Fraud.
-- Route payment failures, duplicate charges, refunds, fees, and billing disputes to Billing.
-- Use General Support when the message does not fit a supported category.
+- Notes beginning "APPROVED POLICY" are trusted company policy context. Ground timelines,
+  requirements, and next steps in those policies. Never invent a policy when none is supplied.
+- When an approved policy is relevant, name its title and version in the evidence.
+
+Intent and routing policy:
+- Transfer pending -> Transfers.
+- Payment failed, Duplicate debit, and Refund pending -> Billing.
+- Fraud report or any unauthorised debit/transfer -> Fraud.
+- Delivery delayed, Delivery missing, and Delivery change -> Logistics.
+- Account access -> Account Support.
+- Account verification -> Compliance.
+- A fee or billing explanation is General enquiry routed to Billing.
+- Use General enquiry routed to General Support only when no supported specialist category fits.
+- A failed airtime, data, utility, or merchant purchase after debit is Payment failed, not a physical
+  delivery complaint. Use Delivery missing only for a parcel or order marked delivered but not received.
+
+Urgency is operational impact, not emotion. Apply this rubric consistently:
+- low: a recent transaction still inside a normal wait period; a status/timeline question; a routine
+  delivery change with no immediate dispatch risk; or a recently confirmed refund.
+- medium: a failed payment after debit; a routine duplicate charge; a refund overdue by several days;
+  an expired access link with a same-day need; a delivery already overdue; or a change needed before
+  dispatch.
+- high: a transfer outstanding since morning or yesterday; a missing parcel marked delivered; a
+  business account blocking sales; medical/time-sensitive delivery; a material duplicate debit; or
+  an unauthorised low-value card purchase without an explicit immediate-compromise signal.
+- critical: an unauthorised material debit or transfer requiring immediate fraud action; or a
+  high-value payment failure explicitly blocking payroll, production, or another business-critical
+  deadline. Do not label ordinary frustration, a routine failed payment, or a small recent delay
+  critical.
+
+Entity extraction:
+- Preserve the amount as written, including ₦ or NGN where supplied.
+- Put references beginning TRX-, PAY-, REF-, or SUB- in transaction_id.
+- Put references beginning ORD- in order_id.
+- Extract the final four digits only for bank accounts and cards. Never return the full number.
+- Do not move a transaction reference into order_id merely because it describes a subscription.
 """.strip()
 
 

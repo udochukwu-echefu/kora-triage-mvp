@@ -34,6 +34,10 @@ class ChannelGateway:
                     self.settings.postmark_server_token
                     and self.settings.postmark_from_email
                 ),
+                "webhook_protected": bool(
+                    self.settings.postmark_webhook_username
+                    and self.settings.postmark_webhook_password
+                ),
             },
             "whatsapp": {
                 "provider": "whatsapp_cloud",
@@ -41,6 +45,7 @@ class ChannelGateway:
                     self.settings.whatsapp_access_token
                     and self.settings.whatsapp_phone_number_id
                 ),
+                "webhook_protected": bool(self.settings.whatsapp_app_secret),
             },
         }
 

@@ -2,7 +2,7 @@ import { cva } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex h-6 items-center gap-1.5 whitespace-nowrap border px-2 text-[9px] font-extrabold uppercase tracking-[0.08em]",
+  "inline-flex h-6 items-center gap-1.5 whitespace-nowrap border px-2.5 text-[10px] font-bold tracking-[-0.01em]",
   {
     variants: {
       variant: {
@@ -13,7 +13,7 @@ const badgeVariants = cva(
       },
       shape: { pill: "rounded-full", square: "rounded-[3px]" }
     },
-    defaultVariants: { variant: "neutral", shape: "square" }
+    defaultVariants: { variant: "neutral", shape: "pill" }
   }
 );
 

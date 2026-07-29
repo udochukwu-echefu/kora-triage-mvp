@@ -53,6 +53,79 @@ export function getCaseConversation(caseId) {
   return api(`/api/cases/${encodeURIComponent(caseId)}/conversation`);
 }
 
+export function getPolicies() {
+  return api("/api/policies");
+}
+
+export function createPolicy(policy) {
+  return api("/api/policies", {
+    method: "POST",
+    body: JSON.stringify(policy)
+  });
+}
+
+export function setPolicyState(policyId, active) {
+  return api(`/api/policies/${encodeURIComponent(policyId)}/state`, {
+    method: "PUT",
+    body: JSON.stringify({ active })
+  });
+}
+
+export function getProofRuns() {
+  return api("/api/proof-runs");
+}
+
+export function createProofRun(run) {
+  return api("/api/proof-runs", {
+    method: "POST",
+    body: JSON.stringify(run)
+  });
+}
+
+export function updateCaseAssignment(caseId, assignee, expectedAssignee = null) {
+  return api(`/api/cases/${encodeURIComponent(caseId)}/assignment`, {
+    method: "PUT",
+    body: JSON.stringify({
+      assignee,
+      expected_assignee: expectedAssignee
+    })
+  });
+}
+
+export function getCaseNotes(caseId) {
+  return api(`/api/cases/${encodeURIComponent(caseId)}/notes`);
+}
+
+export function addCaseNote(caseId, body, mentions = []) {
+  return api(`/api/cases/${encodeURIComponent(caseId)}/notes`, {
+    method: "POST",
+    body: JSON.stringify({ body, mentions })
+  });
+}
+
+export function verifyPaystackTransaction(ticket, reference) {
+  return api(`/api/cases/${encodeURIComponent(ticket.id)}/verify-transaction`, {
+    method: "POST",
+    body: JSON.stringify({
+      customer_id: ticket.customerId,
+      reference
+    })
+  });
+}
+
+export function saveManualAssessment(ticket, assessment) {
+  return api(`/api/cases/${encodeURIComponent(ticket.id)}/manual-assessment`, {
+    method: "POST",
+    body: JSON.stringify({
+      customer_id: ticket.customerId,
+      intent: assessment.intent,
+      urgency: assessment.urgency,
+      route: assessment.route,
+      response: assessment.response
+    })
+  });
+}
+
 export function getAutomationSettings() {
   return api("/api/settings/automation");
 }

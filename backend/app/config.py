@@ -40,11 +40,17 @@ class Settings:
     channel_mode: str = os.getenv("KORA_CHANNEL_MODE", "demo").strip().lower()
     postmark_server_token: str | None = _optional("POSTMARK_SERVER_TOKEN")
     postmark_from_email: str | None = _optional("POSTMARK_FROM_EMAIL")
+    postmark_webhook_username: str | None = _optional("POSTMARK_WEBHOOK_USERNAME")
+    postmark_webhook_password: str | None = _optional("POSTMARK_WEBHOOK_PASSWORD")
     whatsapp_access_token: str | None = _optional("WHATSAPP_ACCESS_TOKEN")
     whatsapp_phone_number_id: str | None = _optional("WHATSAPP_PHONE_NUMBER_ID")
     whatsapp_verify_token: str | None = _optional("WHATSAPP_VERIFY_TOKEN")
     whatsapp_app_secret: str | None = _optional("WHATSAPP_APP_SECRET")
     whatsapp_graph_version: str = os.getenv("WHATSAPP_GRAPH_VERSION", "v23.0")
+    paystack_secret_key: str | None = _optional("PAYSTACK_SECRET_KEY")
+    paystack_base_url: str = os.getenv(
+        "PAYSTACK_BASE_URL", "https://api.paystack.co"
+    ).rstrip("/")
     worker_poll_seconds: float = float(os.getenv("KORA_WORKER_POLL_SECONDS", "1.5"))
     worker_enabled: bool = os.getenv("KORA_WORKER_ENABLED", "true").lower() == "true"
 

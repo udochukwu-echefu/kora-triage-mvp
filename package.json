@@ -11,11 +11,13 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "npm run test:backend",
-    "test:backend": "PYTHONPATH=backend backend/.venv/bin/pytest -q backend/tests"
+    "test:backend": "PYTHONPATH=backend backend/.venv/bin/pytest -q backend/tests",
+    "evaluate": "PYTHONPATH=backend backend/.venv/bin/python -m app.run_evaluation --output backend/data/evaluation-report.json"
   },
   "dependencies": {
-    "@fontsource/manrope": "latest",
+    "@fontsource-variable/elms-sans": "^5.3.0",
     "@radix-ui/react-dropdown-menu": "latest",
+    "@radix-ui/react-select": "^2.3.7",
     "@radix-ui/react-tooltip": "latest",
     "@tailwindcss/vite": "latest",
     "class-variance-authority": "latest",

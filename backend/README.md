@@ -56,7 +56,15 @@ The API is available at `http://127.0.0.1:8000`, with interactive documentation 
 - `GET /api/cases/{case_id}/conversation`: persisted inbound and outbound thread
 - `POST /api/cases/{case_id}/feedback`: corrected labels and response review outcome
 - `POST /api/cases/{case_id}/resolve`: close a case so a later reply can reopen it
+- `PUT /api/cases/{case_id}/assignment`: collision-checked claim, assignment, or release
+- `GET|POST /api/cases/{case_id}/notes`: private internal collaboration notes
+- `POST /api/cases/{case_id}/manual-assessment`: human-owned fallback when AI is unavailable
+- `POST /api/cases/{case_id}/verify-transaction`: read-only Paystack verification
+- `GET|POST /api/policies`: list and create approved tenant policy sources
+- `PUT /api/policies/{policy_id}/state`: activate or pause a policy source
+- `GET|POST /api/proof-runs`: run and inspect isolated historical inbox evaluations
 - `GET /api/evaluations/summary`: human-feedback and labelled-set metrics
+- `GET /api/evaluations/dataset`: manager-only metadata for the 100-case gold set
 - `GET /api/evaluations/gate`: manager-only regression gate
 - `GET /api/jobs`: manager-only delivery and triage job health
 - `POST /api/webhooks/postmark/inbound`: authenticated inbound email adapter
@@ -78,6 +86,13 @@ called. For live email, configure Postmark and point its inbound, delivery, and
 bounce webhooks at the endpoints above. For live WhatsApp, configure the Cloud
 API token, phone-number ID, verification token, and app secret.
 
+Postmark inbound and delivery webhooks use HTTP Basic authentication configured
+with `POSTMARK_WEBHOOK_USERNAME` and `POSTMARK_WEBHOOK_PASSWORD`. Email replies
+are threaded by either the original external thread reference or the Message-ID
+of a response Kora previously sent. WhatsApp validates Meta's
+`X-Hub-Signature-256` against the exact raw request body. Live mode refuses
+unsigned or unprotected webhook traffic.
+
 Every webhook is persisted before processing, every job uses a tenant-scoped
 idempotency key, and transient failures retry with exponential backoff. A job
 moves to `dead` after its final attempt and the case becomes visibly failed.
@@ -95,3 +110,26 @@ key. Manager-only endpoints enforce role checks server-side.
 ```bash
 PYTHONPATH=backend backend/.venv/bin/pytest -q backend/tests
 ```
+
+## Gold-set evaluation
+
+The demonstration queue remains intentionally small. A separate 100-case gold
+set covers transfer disputes, fraud and unauthorised debits, delivery
+complaints, duplicate charges, billing disputes, and account issues across
+English, Pidgin, and mixed messages.
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m app.run_evaluation \
+  --output backend/data/evaluation-report.json
+```
+
+Use `--limit 10` for a smoke run. The full report includes intent, urgency,
+routing, entity, domain, and language metrics plus individual failures.
+Use `--resume` with the same output path after a quota interruption. Successful
+predictions are checkpointed after every case, and the evaluator stops after
+the first rate-limit response rather than consuming retries.
+
+Production triage applies `app/triage_policy.py` after the structured model
+response. This deterministic layer owns operational urgency, specialist
+routing, and reference normalisation; its overrides are included in the
+persisted audit record.
