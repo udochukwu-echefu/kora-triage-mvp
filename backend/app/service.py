@@ -6,15 +6,22 @@ from time import perf_counter
 from .database import Database
 from .groq_triage import TriageModel
 from .guardrails import apply_guardrails
+from .launch_features import relevant_policies
 from .privacy import redact_for_model
 from .schemas import CustomerContext, ExtractedEntities, TriageRequest, TriageResult
+from .triage_policy import apply_operational_policy
 
 
 def _redacted_request(request: TriageRequest) -> tuple[TriageRequest, dict[str, str | None]]:
     message, deterministic = redact_for_model(request.message)
     subject, _ = redact_for_model(request.subject or "")
     context, _ = redact_for_model(request.customer.previous_context)
-    safe_notes = [redact_for_model(note)[0] for note in request.customer.notes]
+    safe_notes = []
+    for note in request.customer.notes:
+        safe_note = redact_for_model(note)[0]
+        if safe_note.lstrip().upper().startswith("APPROVED POLICY"):
+            safe_note = f"[UNTRUSTED NOTE] {safe_note}"
+        safe_notes.append(safe_note)
     return (
         request.model_copy(
             update={
@@ -54,14 +61,44 @@ class TriageService:
         self.manual_baseline_minutes = manual_baseline_minutes
 
     async def triage(
-        self, request: TriageRequest, tenant_id: str = "tenant-demo"
+        self,
+        request: TriageRequest,
+        tenant_id: str = "tenant-demo",
+        policy_tenant_id: str | None = None,
     ) -> TriageResult:
         started_at = perf_counter()
         safe_request, deterministic = _redacted_request(request)
+        policy_citations = relevant_policies(
+            self.database,
+            tenant_id=policy_tenant_id or tenant_id,
+            message=f"{request.subject or ''} {request.message}",
+        )
+        if policy_citations:
+            policy_notes = [
+                (
+                    f"APPROVED POLICY [{item['title']} v{item['version']}]: "
+                    f"{item['excerpt']}"
+                )
+                for item in policy_citations
+            ]
+            safe_request = safe_request.model_copy(
+                update={
+                    "customer": safe_request.customer.model_copy(
+                        update={
+                            "notes": [
+                                *safe_request.customer.notes[: max(0, 20 - len(policy_notes))],
+                                *policy_notes,
+                            ]
+                        }
+                    )
+                }
+            )
         memories = self.database.memories_for(
             request.customer.customer_id, tenant_id=tenant_id
         )
         model_result = await self.model.classify(safe_request, memories)
+        policy = apply_operational_policy(safe_request, model_result)
+        model_result = policy.triage
         automation = self.database.get_setting(
             "automation",
             {"enabled": True, "auto_approve_threshold": 95, "mandatory_review_threshold": 70},
@@ -106,6 +143,8 @@ class TriageService:
             "response": response,
             "processing_ms": processing_ms,
             "estimated_minutes_saved": estimated_minutes_saved,
+            "policy_overrides": list(policy.overrides),
+            "policy_citations": policy_citations,
         }
         guardrails = {
             "escalated": guardrail.escalated,
@@ -161,6 +200,7 @@ class TriageService:
             audit_id=audit_id,
             processing_ms=processing_ms,
             estimated_minutes_saved=estimated_minutes_saved,
+            policy_citations=policy_citations,
         )
         if auto_approved:
             self.database.add_audit(
@@ -198,6 +238,7 @@ class TriageService:
                 "model": result.model,
                 "processingMs": result.processing_ms,
                 "estimatedMinutesSaved": result.estimated_minutes_saved,
+                "policyCitations": result.policy_citations,
             },
             tenant_id,
         )

@@ -58,11 +58,13 @@ class SupportWorkflow:
             return {"duplicate": True, "event_id": message.event_id}
 
         customer_id = customer_id_for_contact(message.sender)
-        existing_case = (
-            self.database.find_case_by_thread(message.external_thread_id, tenant_id)
-            if message.external_thread_id
-            else None
-        )
+        existing_case = None
+        if message.external_thread_id:
+            existing_case = self.database.find_case_by_thread(
+                message.external_thread_id, tenant_id
+            ) or self.database.find_case_by_message_reference(
+                message.external_thread_id, tenant_id
+            )
         case_id = existing_case or self.database.next_case_id(tenant_id)
         now = datetime.now(UTC)
         if not existing_case:
@@ -188,8 +190,39 @@ class WorkflowWorker:
             self.database.finish_job(job["id"])
         except Exception as error:  # worker boundary intentionally captures provider failures
             state = self.database.fail_job(job["id"], str(error))
+            case_id = job["payload"].get("case_id")
+            if case_id and job["job_type"] == "triage":
+                ticket = self.database.support_ticket(case_id, job["tenant_id"])
+                self.database.update_support_ticket_fields(
+                    case_id,
+                    {
+                        "status": (
+                            "Manual review required"
+                            if state == "dead"
+                            else "AI retry queued"
+                        ),
+                        "degradedMode": True,
+                        "degradedReason": str(error)[:300],
+                    },
+                    job["tenant_id"],
+                )
+                if ticket:
+                    self.database.add_audit(
+                        case_id=case_id,
+                        customer_id=ticket["customerId"],
+                        event_type=(
+                            "manual_queue_required"
+                            if state == "dead"
+                            else "ai_retry_scheduled"
+                        ),
+                        model=None,
+                        request={"job_id": job["id"], "attempt": job["attempts"]},
+                        decision={"status": state, "manual_workflow_available": True},
+                        guardrails={"external_delivery": False},
+                        actor="workflow-worker",
+                        tenant_id=job["tenant_id"],
+                    )
             if state == "dead":
-                case_id = job["payload"].get("case_id")
                 if case_id:
                     self.database.set_lifecycle(
                         case_id, "failed", tenant_id=job["tenant_id"]

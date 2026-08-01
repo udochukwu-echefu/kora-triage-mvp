@@ -20,6 +20,13 @@ A polished support triage operations dashboard for a Nigerian fintech or e-comme
 - Durable background triage and delivery jobs with retries and dead-letter status
 - Human correction capture and a release regression gate
 - Tenant-scoped bearer-token roles for non-demo deployments
+- A separate 100-case gold evaluation set covering six operational domains,
+  English, Nigerian Pidgin, mixed language, WhatsApp, and email
+- Tenant-scoped approved policy knowledge with versioned citations in each decision
+- Silent Proof Mode for evaluating up to 100 historical cases without delivery
+- Read-only Paystack verification restricted to references extracted from the case
+- Collision-checked case claiming, named ownership, internal notes, and mentions
+- Explicit degraded mode with AI retries and a human-owned manual assessment path
 
 ## Frontend stack
 
@@ -29,7 +36,7 @@ A polished support triage operations dashboard for a Nigerian fintech or e-comme
 - Radix UI dropdowns and tooltips
 - Recharts for operational charts
 - Lucide React icons
-- Self-hosted Manrope font through Fontsource
+- Self-hosted Elms Sans Variable font through Fontsource
 
 ## Run locally
 
@@ -55,7 +62,45 @@ The first run seeds 18 labelled, fully processed model snapshots into SQLite so 
 
 The dashboard calculates live intent-and-urgency accuracy against the labelled synthetic dataset and estimates handling-time savings against the configurable `KORA_MANUAL_BASELINE_MINUTES` baseline. The Audit tab loads persisted model and human decisions from SQLite and can export them as CSV. Customer memory is deduplicated by customer and case before it is supplied to Groq.
 
+Run the live 100-case model benchmark separately from the demonstration queue:
+
+```bash
+npm run evaluate
+```
+
+The report is written to the ignored
+`backend/data/evaluation-report.json`. It scores intent, urgency, route,
+required entities, unexpected entities, language groups, and operational
+domains without adding benchmark records to the agent queue.
+If Groq's daily quota interrupts a run, repeat the underlying command with
+`--resume`; successful predictions are loaded from the adjacent ignored
+checkpoint instead of being requested again.
+
+Kora uses a hybrid decision path: Groq performs language understanding,
+classification, entity extraction, and response drafting. A deterministic
+operational-policy layer then normalises specialist routing, SLA urgency, and
+reference placement. Every policy override is persisted with the audit decision.
+
 Confidence automation can queue eligible responses for delivery. `KORA_CHANNEL_MODE=demo` safely records an outbound message without contacting a customer. Switch to `live` only after configuring Postmark or WhatsApp Cloud API credentials and their signed webhooks.
+
+Approved policies are managed in **Settings**. Matching is tenant-scoped and
+transparent: Kora includes the matched title, version, excerpt, and source URL
+in the decision record. Customer-supplied notes are never trusted as policy.
+
+**Proof mode** runs historical JSON cases through the same live model, policy,
+and guardrail path under an isolated proof tenant. Proof cases are not inserted
+into the support queue and no delivery job is created, including for
+high-confidence results.
+
+Set `PAYSTACK_SECRET_KEY` to enable read-only transaction verification. Kora
+only verifies the reference already extracted and audited for the selected
+case. The connector does not initialize payments, transfers, reversals, or
+refunds.
+
+If Groq is unavailable, inbound webhooks still create durable cases. Failed
+triage jobs retry with backoff and then move to a visible manual-review state.
+Agents can record a human assessment and response draft without model output;
+manual assessments never auto-approve.
 
 See `backend/README.md` for API endpoints and the production safety boundary.
 
@@ -84,3 +129,11 @@ For live channels, add the provider variables listed in `backend/.env.example`,
 change `KORA_CHANNEL_MODE` to `live`, and register the Railway webhook URLs.
 Keep the public portfolio deployment in demo auth unless it is placed behind a
 real identity provider or provisioned bearer tokens.
+
+Postmark webhook endpoints support HTTP Basic authentication because Postmark
+cannot be assumed to attach Kora's custom header. Set
+`POSTMARK_WEBHOOK_USERNAME` and `POSTMARK_WEBHOOK_PASSWORD`, then include those
+credentials in the inbound and delivery webhook URLs. WhatsApp webhook
+signatures are verified against the exact raw request body using
+`WHATSAPP_APP_SECRET`. Live channel mode fails closed when the relevant
+webhook secret is absent.
