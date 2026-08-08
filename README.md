@@ -1,6 +1,12 @@
 # Kora Operations
 
-A polished support triage operations dashboard for a Nigerian fintech or e-commerce SMB.
+[![CI](https://github.com/udochukwu-echefu/kora-triage-mvp/actions/workflows/ci.yml/badge.svg)](https://github.com/udochukwu-echefu/kora-triage-mvp/actions/workflows/ci.yml)
+
+A support-triage portfolio demonstration for a Nigerian fintech or e-commerce SMB. The public deployment uses synthetic data, demo authentication, and simulated delivery; it is not connected to a real support operation.
+
+**Evidence:** [architecture](docs/architecture.md) · [evaluation methodology](docs/evaluation.md) · [11-case live smoke report](evidence/live-smoke-report.json) · [failure examples](docs/failure-examples.md) · [limitations](docs/limitations.md) · [132-test summary](evidence/test-summary.json)
+
+Latest verification: 132 backend tests pass. A fresh 11-case synthetic Groq smoke run on 8 August 2026 passed 11/11 with 13.669-second median latency, 16.605-second p95 latency, and 22,275 total tokens. These are demo measurements, not customer-traffic evidence.
 
 ## Product capabilities
 
@@ -75,6 +81,14 @@ domains without adding benchmark records to the agent queue.
 If Groq's daily quota interrupts a run, repeat the underlying command with
 `--resume`; successful predictions are loaded from the adjacent ignored
 checkpoint instead of being requested again.
+
+Run the fixed 11-case live smoke set with latency and token tracking:
+
+```bash
+npm run evaluate:smoke
+```
+
+The smoke report is written to the public `evidence/live-smoke-report.json` file. It uses synthetic cases and must not be interpreted as customer-traffic validation.
 
 Kora uses a hybrid decision path: Groq performs language understanding,
 classification, entity extraction, and response drafting. A deterministic

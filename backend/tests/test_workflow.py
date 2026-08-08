@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from app import main
 from app.auth import resolve_principal, token_hash
 from app.benchmark import score_predictions
+from app.run_evaluation import SMOKE_CASE_IDS, _measurement_summary
 from app.channels import ChannelGateway
 from app.config import Settings
 from app.database import Database
@@ -318,6 +319,22 @@ def test_gold_dataset_has_100_cases_and_required_operational_coverage() -> None:
         "fraud_unauthorised",
         "transfer_dispute",
     }
+    cases = [case for case in GOLD_CASES if case.case_id in SMOKE_CASE_IDS]
+    assert len(cases) == 11
+    assert len({case.intent for case in cases}) == 11
+    assert {case.domain for case in cases} == {
+        "account_issue",
+        "billing_dispute",
+        "delivery_complaint",
+        "duplicate_charge",
+        "fraud_unauthorised",
+        "transfer_dispute",
+    }
+    assert {language: sum(case.language == language for case in cases) for language in {"english", "mixed", "pidgin"}} == {
+        "english": 4,
+        "mixed": 3,
+        "pidgin": 4,
+    }
 
 
 def test_benchmark_scores_route_and_normalised_entities() -> None:
@@ -342,6 +359,24 @@ def test_benchmark_scores_route_and_normalised_entities() -> None:
     assert report["failures"] == []
     assert report["fraud_recall"] is None
     assert report["release_gate"]["passed"] is False
+    measurements = _measurement_summary(
+        {
+            "one": {"latency_ms": 100, "prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30},
+            "two": {"latency_ms": 300, "prompt_tokens": 40, "completion_tokens": 20, "total_tokens": 60},
+        }
+    )
+    assert measurements["latency_ms"] == {
+        "measured_cases": 2,
+        "min": 100,
+        "median": 200.0,
+        "p95": 300,
+        "max": 300,
+    }
+    assert measurements["tokens"]["total"] == {
+        "measured_cases": 2,
+        "total": 90,
+        "average": 45.0,
+    }
 
 
 @pytest.mark.parametrize("case", GOLD_CASES, ids=lambda case: case.case_id)

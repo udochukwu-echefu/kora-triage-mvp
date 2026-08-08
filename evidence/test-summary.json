@@ -1,0 +1,8 @@
+{
+  "status": "passed",
+  "test_cases": 132,
+  "command": "PYTHONPATH=backend pytest -q backend/tests",
+  "scope": "Backend, policy, privacy, persistence, workflow, security, and integration behavior",
+  "data": "Synthetic",
+  "note": "100 parameterized gold-policy cases plus 32 additional test cases"
+}
