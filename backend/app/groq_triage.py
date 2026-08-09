@@ -78,7 +78,9 @@ class GroqTriageModel:
         self.model_name = model_name
         self.client = AsyncGroq(api_key=api_key)
 
-    async def classify(self, request: TriageRequest, memory: list[dict]) -> ModelTriage:
+    async def classify_with_metadata(
+        self, request: TriageRequest, memory: list[dict]
+    ) -> tuple[ModelTriage, dict[str, int | None]]:
         schema = ModelTriage.model_json_schema()
         user_payload = {
             "case_id": request.case_id,
@@ -111,4 +113,14 @@ class GroqTriageModel:
         content = completion.choices[0].message.content
         if not content:
             raise RuntimeError("Groq returned an empty triage response")
-        return ModelTriage.model_validate_json(content)
+        usage = completion.usage
+        metadata = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", None),
+            "completion_tokens": getattr(usage, "completion_tokens", None),
+            "total_tokens": getattr(usage, "total_tokens", None),
+        }
+        return ModelTriage.model_validate_json(content), metadata
+
+    async def classify(self, request: TriageRequest, memory: list[dict]) -> ModelTriage:
+        result, _ = await self.classify_with_metadata(request, memory)
+        return result

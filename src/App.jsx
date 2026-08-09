@@ -3,7 +3,7 @@ import {
   Activity, AlertTriangle, ArrowRight, BarChart3, Bell, BellRing, Bot, Check, CheckCheck,
   BookOpenCheck, CheckCircle2, ChevronDown, CircleAlert, CircleUserRound, ClipboardCheck,
   Clock3, CreditCard, Database, Download, Filter, Inbox, LoaderCircle, LogOut, Mail, Menu,
-  MessageCircle, MessagesSquare, MoreHorizontal, Route,
+  GitFork, MessageCircle, MessagesSquare, MoreHorizontal, Route,
   Save, Search, Send, Settings, ShieldAlert, ShieldCheck, Sparkles, Square, SquareCheckBig, Timer,
   UserPlus, UserRoundCheck, Users, WifiOff, Wrench, X, Zap
 } from "lucide-react";
@@ -28,8 +28,6 @@ import {
   saveManualAssessment, setPolicyState, updateAutomationSettings, updateCaseAssignment,
   verifyPaystackTransaction
 } from "./api";
-import LandingPage from "./components/LandingPage";
-
 const InsightsView = lazy(() => import("./components/InsightsView"));
 
 const seedTickets = messages.map((message) => ({
@@ -132,6 +130,10 @@ function Rail({ activeView, onView, open, onClose, user }) {
           ))}
         </nav>
         <div className="border-t border-white/10 pt-3">
+          <a href="https://github.com/udochukwu-echefu/kora-triage-mvp" target="_blank" rel="noreferrer" className="mb-1 flex min-h-12 w-full items-center gap-3 rounded-[7px] px-2 text-paper/58 hover:bg-white/[.07] hover:text-paper">
+            <GitFork className="size-4" />
+            <span><strong className="block text-[10px] font-extrabold">Source and evidence</strong><small className="mt-1 block text-[8px] font-semibold text-paper/40">132 tests passing</small></span>
+          </a>
           <button onClick={() => onView("settings")} className="flex h-14 w-full items-center gap-3 rounded-[7px] px-2 text-left hover:bg-white/[.07]"><span className="grid size-9 place-items-center rounded-full bg-accent text-[10px] font-extrabold text-accent-ink">{initials}</span><span><strong className="block text-[11px] font-extrabold">{displayName}</strong><small className="mt-1 block capitalize text-[9px] font-semibold text-paper/40">{role}</small></span></button>
         </div>
       </TooltipProvider>
@@ -1051,28 +1053,6 @@ function DashboardApp() {
   );
 }
 
-function surfaceFromLocation() {
-  return window.location.pathname === "/app" || window.location.pathname.startsWith("/app/")
-    ? "workspace"
-    : "landing";
-}
-
 export default function App() {
-  const [surface, setSurface] = useState(surfaceFromLocation);
-
-  useEffect(() => {
-    const handleNavigation = () => setSurface(surfaceFromLocation());
-    window.addEventListener("popstate", handleNavigation);
-    return () => window.removeEventListener("popstate", handleNavigation);
-  }, []);
-
-  const openWorkspace = () => {
-    window.history.pushState({}, "", "/app");
-    setSurface("workspace");
-    window.scrollTo({ top: 0, behavior: "instant" });
-  };
-
-  return surface === "workspace"
-    ? <DashboardApp />
-    : <LandingPage onOpenWorkspace={openWorkspace} />;
+  return <DashboardApp />;
 }

@@ -1,0 +1,244 @@
+{
+  "processed": 11,
+  "expected": 11,
+  "intent_accuracy": 1.0,
+  "urgency_accuracy": 1.0,
+  "route_accuracy": 1.0,
+  "combined_accuracy": 1.0,
+  "entity_required_accuracy": 1.0,
+  "entity_exact_match": 1.0,
+  "unexpected_entity_rate": 0.0,
+  "by_domain": {
+    "account_issue": {
+      "cases": 2,
+      "intent_accuracy": 1.0,
+      "urgency_accuracy": 1.0,
+      "route_accuracy": 1.0,
+      "entity_required_accuracy": 1.0
+    },
+    "billing_dispute": {
+      "cases": 3,
+      "intent_accuracy": 1.0,
+      "urgency_accuracy": 1.0,
+      "route_accuracy": 1.0,
+      "entity_required_accuracy": 1.0
+    },
+    "delivery_complaint": {
+      "cases": 3,
+      "intent_accuracy": 1.0,
+      "urgency_accuracy": 1.0,
+      "route_accuracy": 1.0,
+      "entity_required_accuracy": 1.0
+    },
+    "duplicate_charge": {
+      "cases": 1,
+      "intent_accuracy": 1.0,
+      "urgency_accuracy": 1.0,
+      "route_accuracy": 1.0,
+      "entity_required_accuracy": 1.0
+    },
+    "fraud_unauthorised": {
+      "cases": 1,
+      "intent_accuracy": 1.0,
+      "urgency_accuracy": 1.0,
+      "route_accuracy": 1.0,
+      "entity_required_accuracy": 1.0
+    },
+    "transfer_dispute": {
+      "cases": 1,
+      "intent_accuracy": 1.0,
+      "urgency_accuracy": 1.0,
+      "route_accuracy": 1.0,
+      "entity_required_accuracy": 1.0
+    }
+  },
+  "by_language": {
+    "english": {
+      "cases": 4,
+      "intent_accuracy": 1.0,
+      "urgency_accuracy": 1.0,
+      "route_accuracy": 1.0,
+      "entity_required_accuracy": 1.0
+    },
+    "mixed": {
+      "cases": 3,
+      "intent_accuracy": 1.0,
+      "urgency_accuracy": 1.0,
+      "route_accuracy": 1.0,
+      "entity_required_accuracy": 1.0
+    },
+    "pidgin": {
+      "cases": 4,
+      "intent_accuracy": 1.0,
+      "urgency_accuracy": 1.0,
+      "route_accuracy": 1.0,
+      "entity_required_accuracy": 1.0
+    }
+  },
+  "failures": [],
+  "fraud_recall": 1.0,
+  "release_gate": {
+    "passed": false,
+    "thresholds": {
+      "intent_accuracy": 0.9,
+      "urgency_accuracy": 0.8,
+      "route_accuracy": 0.9,
+      "entity_required_accuracy": 0.9,
+      "fraud_recall": 0.95
+    },
+    "checks": {
+      "intent_accuracy": true,
+      "urgency_accuracy": true,
+      "route_accuracy": true,
+      "entity_required_accuracy": true,
+      "fraud_recall": true,
+      "complete_run": false
+    }
+  },
+  "run": {
+    "label": "live_smoke",
+    "started_at": "2026-08-08T22:15:57.528839+00:00",
+    "git_sha": "579a44db4dd1b409541938b33aae6dbab8c1c084",
+    "git_dirty": true,
+    "complete": true,
+    "synthetic_data": true
+  },
+  "model": "openai/gpt-oss-20b",
+  "elapsed_seconds": 110.93,
+  "measurements": {
+    "EVAL-TRANSFER-01-01": {
+      "latency_ms": 1885,
+      "prompt_tokens": 1399,
+      "completion_tokens": 522,
+      "total_tokens": 1921
+    },
+    "EVAL-PAYMENT-01-03": {
+      "latency_ms": 1040,
+      "prompt_tokens": 1398,
+      "completion_tokens": 579,
+      "total_tokens": 1977
+    },
+    "EVAL-DUPLICATE-01-01": {
+      "latency_ms": 1126,
+      "prompt_tokens": 1407,
+      "completion_tokens": 590,
+      "total_tokens": 1997
+    },
+    "EVAL-FRAUD-01-03": {
+      "latency_ms": 1361,
+      "prompt_tokens": 1399,
+      "completion_tokens": 909,
+      "total_tokens": 2308
+    },
+    "EVAL-DELAY-01-02": {
+      "latency_ms": 10728,
+      "prompt_tokens": 1392,
+      "completion_tokens": 525,
+      "total_tokens": 1917
+    },
+    "EVAL-MISSING-01-02": {
+      "latency_ms": 13770,
+      "prompt_tokens": 1396,
+      "completion_tokens": 602,
+      "total_tokens": 1998
+    },
+    "EVAL-CHANGE-01-03": {
+      "latency_ms": 13669,
+      "prompt_tokens": 1392,
+      "completion_tokens": 568,
+      "total_tokens": 1960
+    },
+    "EVAL-ACCESS-01-01": {
+      "latency_ms": 14160,
+      "prompt_tokens": 1393,
+      "completion_tokens": 571,
+      "total_tokens": 1964
+    },
+    "EVAL-VERIFY-01-02": {
+      "latency_ms": 14872,
+      "prompt_tokens": 1389,
+      "completion_tokens": 616,
+      "total_tokens": 2005
+    },
+    "EVAL-REFUND-01-02": {
+      "latency_ms": 14170,
+      "prompt_tokens": 1400,
+      "completion_tokens": 729,
+      "total_tokens": 2129
+    },
+    "EVAL-FEE-01-01": {
+      "latency_ms": 16605,
+      "prompt_tokens": 1402,
+      "completion_tokens": 697,
+      "total_tokens": 2099
+    }
+  },
+  "measurement_summary": {
+    "latency_ms": {
+      "measured_cases": 11,
+      "min": 1040,
+      "median": 13669,
+      "p95": 16605,
+      "max": 16605
+    },
+    "tokens": {
+      "prompt": {
+        "measured_cases": 11,
+        "total": 15367,
+        "average": 1397.0
+      },
+      "completion": {
+        "measured_cases": 11,
+        "total": 6908,
+        "average": 628.0
+      },
+      "total": {
+        "measured_cases": 11,
+        "total": 22275,
+        "average": 2025.0
+      }
+    }
+  },
+  "errors": [],
+  "dataset": {
+    "cases": 11,
+    "domains": [
+      "account_issue",
+      "billing_dispute",
+      "delivery_complaint",
+      "duplicate_charge",
+      "fraud_unauthorised",
+      "transfer_dispute"
+    ],
+    "intents": [
+      "Account access",
+      "Account verification",
+      "Delivery change",
+      "Delivery delayed",
+      "Delivery missing",
+      "Duplicate debit",
+      "Fraud report",
+      "General enquiry",
+      "Payment failed",
+      "Refund pending",
+      "Transfer pending"
+    ],
+    "routes": [
+      "Account Support",
+      "Billing",
+      "Compliance",
+      "Fraud",
+      "Logistics",
+      "Transfers"
+    ],
+    "channels": {
+      "email": 5,
+      "whatsapp": 6
+    },
+    "languages": {
+      "english": 4,
+      "mixed": 3,
+      "pidgin": 4
+    }
+  }
+}

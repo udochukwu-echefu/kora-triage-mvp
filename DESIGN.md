@@ -24,7 +24,7 @@ Kora is a calm, inspectable support-operations product for Nigerian fintech and 
 
 ## Surfaces
 
-- Landing page: dark editorial register with large typography and a realistic product preview
+- The public URL opens directly into the workspace; there is no separate marketing surface
 - Workspace: light operational register with a dark navigation rail
 - Raw customer input stays neutral
 - AI assessment uses a pale teal-tinted surface
