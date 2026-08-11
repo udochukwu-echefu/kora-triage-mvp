@@ -151,7 +151,7 @@ def test_email_reply_resolves_the_case_from_kora_outbound_message_id(
 
 
 @pytest.mark.asyncio
-async def test_worker_triages_auto_approves_and_sends_in_demo_mode(
+async def test_worker_keeps_demo_delivery_human_reviewed(
     tmp_path: Path,
 ) -> None:
     database = Database(tmp_path / "kora.db")
@@ -170,14 +170,12 @@ async def test_worker_triages_auto_approves_and_sends_in_demo_mode(
 
     assert await worker.process_one() is True
     assert database.lifecycle(accepted["case_id"], "tenant-a")["state"] == "triaged"
-    assert database.job_counts("tenant-a")["queued"] == 1
-
-    assert await worker.process_one() is True
-    assert database.lifecycle(accepted["case_id"], "tenant-a")["state"] == "sent"
+    assert database.job_counts("tenant-a")["queued"] == 0
+    assert await worker.process_one() is False
+    assert database.lifecycle(accepted["case_id"], "tenant-a")["state"] == "triaged"
     messages = database.conversation(accepted["case_id"], "tenant-a")
-    assert [message["direction"] for message in messages] == ["inbound", "outbound"]
-    assert messages[-1]["provider"] == "kora_demo"
-    assert database.audit_event_exists(accepted["case_id"], "response_sent", "tenant-a")
+    assert [message["direction"] for message in messages] == ["inbound"]
+    assert not database.audit_event_exists(accepted["case_id"], "response_sent", "tenant-a")
 
 
 @pytest.mark.asyncio

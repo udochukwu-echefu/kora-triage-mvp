@@ -174,6 +174,18 @@ export function recordCaseAction(ticket, action, response = null, note = null) {
   });
 }
 
+export function recordSensitiveReveal(ticket) {
+  return api(`/api/cases/${encodeURIComponent(ticket.id)}/sensitive-reveal`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      actor: "Ada Okafor",
+      customer_id: ticket.customerId,
+      note: "Agent revealed masked customer information"
+    })
+  });
+}
+
 export function recordCaseRoute(ticket, team) {
   return api(`/api/cases/${encodeURIComponent(ticket.id)}/route`, {
     method: "POST",

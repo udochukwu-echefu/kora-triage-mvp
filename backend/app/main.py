@@ -104,6 +104,14 @@ def get_service() -> TriageService:
         database,
         GroqTriageModel(settings.groq_api_key, settings.groq_model),
         settings.manual_baseline_minutes,
+        delivery_available=(
+            settings.channel_mode == "live"
+            and (
+                bool(settings.postmark_server_token and settings.postmark_from_email)
+                or bool(settings.whatsapp_access_token and settings.whatsapp_phone_number_id)
+            )
+        ),
+        verification_available=bool(settings.paystack_secret_key),
     )
 
 
@@ -260,7 +268,20 @@ async def audit(
     limit: int = Query(default=100, ge=1, le=500),
     principal: Principal = Depends(current_principal),
 ) -> dict:
-    return {"items": database.audits(limit, principal.tenant_id)}
+    items = database.audits(limit, principal.tenant_id)
+    value_labels = {
+        "assigned_to_specialist": "Assigned to specialist",
+        "routed": "Routed by agent",
+        "auto_approved": "Auto-approved",
+        "approved": "Approved by agent",
+    }
+    for item in items:
+        if item["event_type"] == "triage":
+            item["actor"] = "Kora automation"
+        status_value = item["decision"].get("status")
+        if status_value in value_labels:
+            item["decision"]["status"] = value_labels[status_value]
+    return {"items": items}
 
 
 @app.get("/api/cases")
@@ -332,16 +353,17 @@ async def run_proof(
     service = get_service()
     settings_value = database.get_setting(
         "automation",
-        {"enabled": True, "auto_approve_threshold": 95, "mandatory_review_threshold": 70},
+        {"enabled": False, "auto_approve_threshold": 95, "mandatory_review_threshold": 70},
         principal.tenant_id,
     )
     rows = []
     proof_tenant = f"{principal.tenant_id}:proof"
     for index, case in enumerate(value.cases):
         try:
+            proof_case_id = f"PROOF-{index + 1}-{case.case_id}"[:80]
             result = await service.triage(
                 TriageRequest(
-                    case_id=f"PROOF-{index + 1}-{case.case_id}"[:80],
+                    case_id=proof_case_id,
                     channel=case.channel,
                     message=case.message,
                     subject=case.subject,
@@ -363,6 +385,10 @@ async def run_proof(
                 if case.expected
                 else None
             )
+            proof_audit = database.latest_triage_for_case(
+                proof_case_id,
+                proof_tenant,
+            )
             rows.append(
                 {
                     "case_id": case.case_id,
@@ -374,6 +400,10 @@ async def run_proof(
                         "route": result.route.value,
                         "confidence": result.confidence,
                         "escalated": result.escalated,
+                        "automation_eligible": bool(
+                            proof_audit
+                            and proof_audit["decision"].get("automation", {}).get("eligible")
+                        ),
                     },
                 }
             )
@@ -415,13 +445,21 @@ async def run_proof(
 async def automation_settings(
     _: Principal = Depends(current_principal),
 ) -> AutomationSettings:
-    return AutomationSettings.model_validate(
-        database.get_setting(
-            "automation",
-            {"enabled": True, "auto_approve_threshold": 95, "mandatory_review_threshold": 70},
-            _.tenant_id,
-        )
+    value = database.get_setting(
+        "automation",
+        {"enabled": False, "auto_approve_threshold": 95, "mandatory_review_threshold": 70},
+        _.tenant_id,
     )
+    delivery_ready = settings.channel_mode == "live" and (
+        bool(settings.postmark_server_token and settings.postmark_from_email)
+        or bool(settings.whatsapp_access_token and settings.whatsapp_phone_number_id)
+    )
+    if value.get("enabled") and (
+        not database.policies(_.tenant_id, active_only=True) or not delivery_ready
+    ):
+        value = {**value, "enabled": False}
+        database.set_setting("automation", value, _.tenant_id)
+    return AutomationSettings.model_validate(value)
 
 
 @app.put("/api/settings/automation", response_model=AutomationSettings)
@@ -433,6 +471,20 @@ async def update_automation_settings(
         raise HTTPException(
             status_code=422,
             detail="Mandatory review threshold must be lower than auto-approve threshold.",
+        )
+    if value.enabled and not database.policies(_.tenant_id, active_only=True):
+        raise HTTPException(
+            status_code=422,
+            detail="Add and activate an approved policy before enabling auto-approval.",
+        )
+    delivery_ready = settings.channel_mode == "live" and (
+        bool(settings.postmark_server_token and settings.postmark_from_email)
+        or bool(settings.whatsapp_access_token and settings.whatsapp_phone_number_id)
+    )
+    if value.enabled and not delivery_ready:
+        raise HTTPException(
+            status_code=422,
+            detail="Connect a live customer delivery channel before enabling auto-approval.",
         )
     database.set_setting("automation", value.model_dump(), _.tenant_id)
     return value
@@ -487,7 +539,11 @@ async def approve(
     )
     conversation = database.conversation(case_id, principal.tenant_id)
     job_id = None
-    if conversation:
+    delivery_ready = settings.channel_mode == "live" and (
+        bool(settings.postmark_server_token and settings.postmark_from_email)
+        or bool(settings.whatsapp_access_token and settings.whatsapp_phone_number_id)
+    )
+    if conversation and delivery_ready:
         job_id = database.enqueue_job(
             tenant_id=principal.tenant_id,
             job_type="send_response",
@@ -512,6 +568,27 @@ async def approve(
         "audit_id": audit_id,
         "job_id": job_id,
     }
+
+
+@app.post("/api/cases/{case_id}/sensitive-reveal")
+async def record_sensitive_reveal(
+    case_id: str,
+    action: ActionRequest,
+    principal: Principal = Depends(current_principal),
+) -> dict:
+    validated_case(case_id, action.customer_id, principal.tenant_id)
+    audit_id = database.add_audit(
+        case_id=case_id,
+        customer_id=action.customer_id,
+        event_type="sensitive_data_revealed",
+        model=None,
+        request={},
+        decision={"status": "revealed", "reason": action.note or "Agent requested reveal"},
+        guardrails={"sensitive_access": True},
+        actor=principal.display_name,
+        tenant_id=principal.tenant_id,
+    )
+    return {"case_id": case_id, "status": "recorded", "audit_id": audit_id}
 
 
 @app.post("/api/cases/{case_id}/escalate")

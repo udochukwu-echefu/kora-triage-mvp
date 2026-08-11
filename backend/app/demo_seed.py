@@ -520,3 +520,22 @@ def seed_demo_data(database: Database) -> None:
             created_at=event_time,
         )
         database.update_support_ticket_fields(ticket["id"], action["ticket_updates"])
+
+    specialist_by_route = {
+        "Transfers": "Musa Ibrahim",
+        "Billing": "Musa Ibrahim",
+        "Fraud": "Nneka Eze",
+        "Compliance": "Nneka Eze",
+        "Logistics": "Bola Martins",
+        "Account Support": "Bola Martins",
+        "General Support": "Ada Okafor",
+    }
+    for action in DEMO_HUMAN_DECISIONS:
+        if action["event_type"] != "human_escalated":
+            continue
+        ticket = tickets_by_id[action["case_id"]]
+        database.set_lifecycle(
+            ticket["id"],
+            "review_required",
+            assigned_to=specialist_by_route[ticket["triage"]["route"]],
+        )

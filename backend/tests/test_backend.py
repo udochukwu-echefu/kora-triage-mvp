@@ -185,7 +185,7 @@ async def test_service_deduplicates_memory_and_restores_greeting(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_confidence_policy_is_enforced_by_the_service(tmp_path: Path) -> None:
+async def test_confidence_alone_cannot_auto_approve_without_governance(tmp_path: Path) -> None:
     database = Database(tmp_path / "kora.db")
     database.initialize()
     database.set_setting(
@@ -205,11 +205,48 @@ async def test_confidence_policy_is_enforced_by_the_service(tmp_path: Path) -> N
             )
 
     result = await TriageService(database, ConfidentModel()).triage(request("I cannot login"))
+    assert result.status == "AI draft ready"
+    latest = database.latest_triage_for_case("KOR-TEST")
+    assert latest["decision"]["automation"]["code"] == "no_policy"
+    assert [item["event_type"] for item in database.audits()] == ["triage"]
+
+
+@pytest.mark.asyncio
+async def test_low_risk_case_needs_policy_delivery_and_confidence_to_auto_approve(tmp_path: Path) -> None:
+    database = Database(tmp_path / "kora.db")
+    database.initialize()
+    database.set_setting(
+        "automation",
+        {"enabled": True, "auto_approve_threshold": 95, "mandatory_review_threshold": 70},
+    )
+    database.add_policy(
+        tenant_id="tenant-demo",
+        title="General help",
+        content="General help and opening hours enquiries may use this approved response.",
+        source_url=None,
+        version="1.0",
+    )
+
+    class SafeModel(FakeModel):
+        async def classify(self, _request: TriageRequest, _memory: list[dict]) -> ModelTriage:
+            return model_result(
+                intent=Intent.general_enquiry,
+                urgency=Urgency.low,
+                sentiment=Sentiment.calm,
+                route=Route.general_support,
+                confidence=0.97,
+                draft_response="Hello Customer, our opening hours are available in the approved help policy.",
+            )
+
+    safe_request = request("What are your general help opening hours?")
+    result = await TriageService(
+        database,
+        SafeModel(),
+        delivery_available=True,
+    ).triage(safe_request)
     assert result.status == "Auto-approved"
-    assert [item["event_type"] for item in database.audits()] == [
-        "confidence_auto_approved",
-        "triage",
-    ]
+    assert database.latest_triage_for_case("KOR-TEST")["decision"]["automation"]["code"] == "eligible"
+    assert database.audit_event_exists("KOR-TEST", "safety_policy_auto_approved")
 
 
 def test_case_actions_reject_a_different_customer(tmp_path: Path, monkeypatch) -> None:

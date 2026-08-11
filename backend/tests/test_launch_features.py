@@ -167,6 +167,7 @@ def test_proof_report_exposes_safe_automation_and_readiness() -> None:
                     "route": "Transfers",
                     "confidence": 0.97,
                     "escalated": False,
+                    "automation_eligible": True,
                 },
             },
             {
@@ -188,6 +189,10 @@ def test_proof_report_exposes_safe_automation_and_readiness() -> None:
         ]
     )
     assert report["label_accuracy"] == 1
+    assert report["intent_accuracy"] == 1
+    assert report["urgency_accuracy"] == 1
+    assert report["routing_accuracy"] == 1
+    assert report["guardrail_failures"] == 0
     assert report["safe_automation_candidates"] == 1
     assert report["human_review_cases"] == 1
     assert report["readiness_score"] == 100

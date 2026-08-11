@@ -64,16 +64,22 @@ def proof_report(rows: list[dict], auto_threshold: int = 95) -> dict:
     labelled = [row for row in completed if row.get("expected")]
     correct = 0
     label_total = 0
+    accuracy_by_label = {}
     for row in labelled:
         expected = row["expected"]
         for key in ("intent", "urgency", "route"):
             if expected.get(key):
                 label_total += 1
                 correct += int(row["predicted"].get(key) == expected[key])
+    for key in ("intent", "urgency", "route"):
+        measured = [row for row in labelled if row["expected"].get(key)]
+        accuracy_by_label[key] = (
+            sum(row["predicted"].get(key) == row["expected"][key] for row in measured) / len(measured)
+            if measured else None
+        )
     auto = [
         row for row in completed
-        if not row["predicted"]["escalated"]
-        and row["predicted"]["confidence"] * 100 >= auto_threshold
+        if row["predicted"].get("automation_eligible") is True
     ]
     auto_errors = 0
     for row in auto:
@@ -101,10 +107,14 @@ def proof_report(rows: list[dict], auto_threshold: int = 95) -> dict:
         "completed": len(completed),
         "failed": len(rows) - len(completed),
         "label_accuracy": accuracy,
+        "intent_accuracy": accuracy_by_label["intent"],
+        "urgency_accuracy": accuracy_by_label["urgency"],
+        "routing_accuracy": accuracy_by_label["route"],
         "labels_correct": correct,
         "labels_total": label_total,
         "safe_automation_candidates": len(auto),
         "unsafe_automation_candidates": auto_errors,
+        "guardrail_failures": auto_errors,
         "human_review_cases": sum(
             1 for row in completed if row["predicted"]["escalated"]
         ),

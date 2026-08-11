@@ -145,7 +145,7 @@ class RouteRequest(BaseModel):
 class AutomationSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = True
+    enabled: bool = False
     auto_approve_threshold: int = Field(default=95, ge=80, le=99)
     mandatory_review_threshold: int = Field(default=70, ge=50, le=90)
 

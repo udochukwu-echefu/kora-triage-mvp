@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from time import perf_counter
 
+from .automation import auto_approval_decision
 from .database import Database
 from .groq_triage import TriageModel
 from .guardrails import apply_guardrails
@@ -55,10 +56,15 @@ class TriageService:
         database: Database,
         model: TriageModel,
         manual_baseline_minutes: float = 12,
+        *,
+        delivery_available: bool = False,
+        verification_available: bool = False,
     ):
         self.database = database
         self.model = model
         self.manual_baseline_minutes = manual_baseline_minutes
+        self.delivery_available = delivery_available
+        self.verification_available = verification_available
 
     async def triage(
         self,
@@ -101,7 +107,7 @@ class TriageService:
         model_result = policy.triage
         automation = self.database.get_setting(
             "automation",
-            {"enabled": True, "auto_approve_threshold": 95, "mandatory_review_threshold": 70},
+            {"enabled": False, "auto_approve_threshold": 95, "mandatory_review_threshold": 70},
             tenant_id,
         )
         processing_ms = round((perf_counter() - started_at) * 1000)
@@ -151,6 +157,30 @@ class TriageService:
             "reason": guardrail.reason,
             "flags": list(guardrail.flags),
         }
+        automation_decision = auto_approval_decision(
+            enabled=automation["enabled"],
+            confidence=model_result.confidence,
+            threshold=automation["auto_approve_threshold"],
+            intent=model_result.intent.value,
+            route=model_result.route.value,
+            message=request.message,
+            response=response,
+            policy_citations=policy_citations,
+            guardrail_escalated=guardrail.escalated,
+            guardrail_flags=list(guardrail.flags),
+            verification_available=self.verification_available,
+            delivery_available=self.delivery_available,
+            required_information_complete=not any(
+                phrase in response.lower()
+                for phrase in ("please provide", "kindly provide", "could you share", "send us your")
+            ),
+        )
+        auto_approved = automation_decision.eligible
+        decision["automation"] = {
+            "eligible": automation_decision.eligible,
+            "reason": automation_decision.reason,
+            "code": automation_decision.code,
+        }
         audit_id = self.database.add_audit(
             case_id=request.case_id,
             customer_id=request.customer.customer_id,
@@ -172,11 +202,6 @@ class TriageService:
             memory_summary,
             entities,
             tenant_id=tenant_id,
-        )
-        auto_approved = (
-            automation["enabled"]
-            and not guardrail.escalated
-            and model_result.confidence * 100 >= automation["auto_approve_threshold"]
         )
         result = TriageResult(
             intent=model_result.intent,
@@ -206,13 +231,14 @@ class TriageService:
             self.database.add_audit(
                 case_id=request.case_id,
                 customer_id=request.customer.customer_id,
-                event_type="confidence_auto_approved",
+                event_type="safety_policy_auto_approved",
                 model=None,
                 request={},
                 decision={
                     "status": "auto_approved",
                     "threshold": automation["auto_approve_threshold"],
                     "confidence": result.confidence,
+                    "eligibility_reason": automation_decision.reason,
                     "response": result.response,
                 },
                 guardrails={"escalated": False, "flags": []},
