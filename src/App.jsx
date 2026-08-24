@@ -20,6 +20,9 @@ import {
 } from "./components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
+import { Input } from "./components/ui/input";
+import { ScrollArea } from "./components/ui/scroll-area";
+import { Switch } from "./components/ui/switch";
 import {
   addCaseNote, createPolicy, createProofRun, getAutomationSettings, getBackendAudit,
   getBackendHealth, getCases, getCustomerMemory, getCaseConversation, getCurrentUser,
@@ -29,6 +32,7 @@ import {
   verifyPaystackTransaction
 } from "./api";
 const InsightsView = lazy(() => import("./components/InsightsView"));
+const AuditDatePicker = lazy(() => import("./components/AuditDatePicker"));
 
 const seedTickets = messages.map((message) => ({
   ...message,
@@ -148,7 +152,7 @@ function Rail({ activeView, onView, open, onClose, user }) {
   const initials = displayName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   return (
     <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-[232px] flex-col border-r border-white/10 bg-shell px-3 py-4 text-paper transition-transform lg:translate-x-0", open ? "translate-x-0 shadow-precision" : "-translate-x-full")} aria-label="Main navigation">
-      <button onClick={onClose} className="absolute right-2 top-2 rounded-[6px] p-2 text-paper/60 hover:bg-white/10 hover:text-paper lg:hidden" aria-label="Close navigation"><X className="size-4" /></button>
+      <button onClick={onClose} className="absolute right-2 top-2 grid size-11 place-items-center rounded-[6px] text-paper/60 hover:bg-white/10 hover:text-paper lg:hidden" aria-label="Close navigation"><X className="size-4" /></button>
       <div className="flex h-12 items-center gap-3 px-2" aria-label="Kora"><span className="grid size-9 place-items-center rounded-[8px] bg-accent text-xs font-semibold text-accent-ink">KR</span><span><strong className="block text-[14px] font-semibold tracking-[-0.03em]">Kora</strong><small className="mt-1 block text-[10px] font-medium text-paper/45">Support operations</small></span></div>
       <TooltipProvider>
         <nav className="mt-8 flex flex-1 flex-col gap-1.5">
@@ -161,7 +165,7 @@ function Rail({ activeView, onView, open, onClose, user }) {
           ))}
         </nav>
         <div className="border-t border-white/10 pt-3">
-          <button onClick={() => onView("settings")} className="flex h-14 w-full items-center gap-3 rounded-[7px] px-2 text-left hover:bg-white/[.07]"><span className="grid size-9 place-items-center rounded-full bg-accent text-[10px] font-extrabold text-accent-ink">{initials}</span><span><strong className="block text-[11px] font-extrabold">{displayName}</strong><small className="mt-1 block capitalize text-[9px] font-semibold text-paper/40">{role}</small></span></button>
+          <button onClick={() => onView("settings")} className="flex min-h-16 w-full items-center gap-3 rounded-[7px] px-2 text-left hover:bg-white/[.07]"><span className="grid size-10 place-items-center rounded-full bg-accent text-[12px] font-extrabold text-accent-ink">{initials}</span><span><strong className="block text-[14px] font-extrabold">{displayName}</strong><small className="mt-1 block capitalize text-[12px] font-semibold text-paper/65">{role}</small></span></button>
         </div>
       </TooltipProvider>
     </aside>
@@ -173,7 +177,14 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
   const displayName = user?.display_name || "Ada Okafor";
   const role = (user?.role || "support_manager").replaceAll("_", " ");
   const initials = displayName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase();
-  const titles = { queue: "Queue", insights: "Insights", proof: "Historical evaluation", audit: "Decision audit", team: "Team coverage", settings: "Confidence automation" };
+  const titles = {
+    queue: { full: "Queue", compact: "Queue" },
+    insights: { full: "Insights", compact: "Insights" },
+    proof: { full: "Historical evaluation", compact: "Evaluation" },
+    audit: { full: "Decision audit", compact: "Audit" },
+    team: { full: "Team coverage", compact: "Team" },
+    settings: { full: "Confidence automation", compact: "Automation" }
+  };
   const engineLabel = backend.state === "checking"
     ? "Checking API"
     : backend.configured
@@ -191,9 +202,9 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
   const slaRiskCount = tickets.filter((ticket) => slaState(ticket)).length;
   return (
     <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-line bg-paper px-4 sm:px-7 lg:px-8">
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         <Button variant="outline" size="icon" className="lg:hidden" onClick={onMenu} aria-label="Open navigation"><Menu className="size-4" /></Button>
-        <h1 className="text-[20px] font-semibold tracking-[-0.035em]">{titles[activeView]}</h1>
+        <h1 className="truncate text-[18px] font-semibold tracking-[-0.035em] sm:text-[20px]"><span className="sm:hidden">{titles[activeView].compact}</span><span className="hidden sm:inline">{titles[activeView].full}</span></h1>
       </div>
       <div className="flex items-center gap-2">
         <div className="hidden items-center gap-2 border border-line px-3 py-2 text-[10px] font-bold text-ink-muted sm:flex"><span className={cn("size-2 rounded-full", backend.configured ? "bg-accent" : "bg-line-strong")} />{engineLabel}</div>
@@ -256,7 +267,7 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56" sideOffset={8}>
-            <div className="px-2.5 py-2.5"><p className="text-[11px] font-extrabold">{displayName}</p><p className="mt-1 capitalize text-[9px] font-semibold text-ink-faint">{role}</p></div>
+            <div className="px-3 py-3"><p className="text-[14px] font-extrabold">{displayName}</p><p className="mt-1 capitalize text-[12px] font-semibold text-ink-muted">{role}</p></div>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Workspace</DropdownMenuLabel>
             <DropdownMenuItem onSelect={() => onView("queue")}><Inbox className="size-3.5" />Support queue</DropdownMenuItem>
@@ -509,6 +520,7 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
   const [correction, setCorrection] = useState({ intent: "", urgency: "", route: "", reason: "" });
   const [noteDraft, setNoteDraft] = useState("");
   const [revealed, setRevealed] = useState(false);
+  const conversationViewportRef = useRef(null);
   useEffect(() => { setDraft(ticket.response || ""); setCorrection({ intent: "", urgency: "", route: "", reason: "" }); setNoteDraft(""); setRevealed(false); }, [ticket.id, ticket.response]);
   const decision = automationDecision(ticket, automation, governance);
   const delivery = ticket.channel === "email" ? governance.integrations?.email : governance.integrations?.whatsapp;
@@ -517,6 +529,14 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
   const entities = Object.entries(ticket.entities || {}).filter(([, value]) => value);
   const labels = { amount: "Amount", transactionId: "Transaction ID", orderId: "Order ID", account: "Account", card: "Card" };
   const reveal = () => { setRevealed(true); onSensitiveReveal?.(ticket); };
+  const scrollConversationToLatest = () => window.requestAnimationFrame(() => {
+    const viewport = conversationViewportRef.current;
+    if (viewport) viewport.scrollTo({
+      top: viewport.scrollHeight,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+    });
+  });
+  useEffect(() => { if (!conversationLoading && conversation.length) scrollConversationToLatest(); }, [conversationLoading, conversation.length, ticket.id]);
   return (
     <article className="detail-scroll case-workspace" aria-labelledby="ticket-title">
       <header className="case-header">
@@ -530,7 +550,7 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
           <blockquote>“{revealed ? ticket.message : maskSensitive(ticket.message)}”</blockquote>
           {!revealed && ticket.message !== maskSensitive(ticket.message) && <Button variant="ghost" onClick={reveal}><Eye className="size-4" />Reveal sensitive details</Button>}
           {entities.length > 0 && <div className="entity-list">{entities.map(([key, value]) => <EntityTag key={key} label={labels[key]} value={value} />)}</div>}
-          {(conversationLoading || conversation.length > 0) && <details className="case-disclosure"><summary><span><MessagesSquare />Conversation history</span><span>{conversation.length} messages <ChevronDown /></span></summary><div className="disclosure-content">{conversationLoading ? <Skeleton className="h-20 w-full" /> : conversation.map((message) => <div key={message.id} className={cn("conversation-message", message.direction === "outbound" && "conversation-message-outbound")}><span>{message.direction === "outbound" ? "Agent response" : "Customer"} · {message.delivery_status}</span><p>{message.body}</p></div>)}</div></details>}
+          {(conversationLoading || conversation.length > 0) && <details className="case-disclosure" onToggle={(event) => event.currentTarget.open && scrollConversationToLatest()}><summary><span><MessagesSquare />Conversation history</span><span>{conversation.length} messages <ChevronDown /></span></summary><ScrollArea className="conversation-scroll" viewportRef={conversationViewportRef}><div className="disclosure-content">{conversationLoading ? <Skeleton className="h-20 w-full" /> : conversation.map((message) => <div key={message.id} className={cn("conversation-message", message.direction === "outbound" && "conversation-message-outbound")}><span>{message.direction === "outbound" ? "Agent response" : "Customer"} · {message.delivery_status}</span><p>{message.body}</p></div>)}</div></ScrollArea></details>}
         </section>
         <div className="case-decision-grid">
           <section className="human-decision" aria-labelledby="agent-decision-title">
@@ -669,10 +689,10 @@ function SettingsView({ automation, onChange, onSave, saving, tickets, integrati
       <div className="page-heading"><p>Confidence is only one requirement. Policy, verification, guardrails, information completeness and delivery must also pass.</p></div>
       <div className="grid gap-5 lg:grid-cols-[1.2fr_.8fr]">
         <Card className="p-6">
-          <div className="flex items-start justify-between gap-5 border-b border-line pb-5"><div><div className="flex items-center gap-2"><Zap className="size-4" /><h3 className="text-[14px] font-semibold">Auto-approve eligible drafts</h3></div><p className="mt-2 max-w-lg text-[13px] leading-5 text-ink-muted">Eligible cases need an approved policy match, no guardrail, required verification, complete information, connected delivery and sufficient confidence.</p></div><button type="button" role="switch" aria-label="Enable auto-approval" aria-checked={automation.enabled} disabled={!governanceReady && !automation.enabled} onClick={() => onChange({ ...automation, enabled: !automation.enabled })} className={cn("safe-switch", automation.enabled && "safe-switch-on")}><span /></button></div>
+          <div className="flex items-start justify-between gap-5 border-b border-line pb-5"><div><div className="flex items-center gap-2"><Zap className="size-4" /><h3 className="text-[14px] font-semibold">Auto-approve eligible drafts</h3></div><p className="mt-2 max-w-lg text-[13px] leading-5 text-ink-muted">Eligible cases need an approved policy match, no guardrail, required verification, complete information, connected delivery and sufficient confidence.</p></div><Switch aria-label="Enable auto-approval" checked={automation.enabled} disabled={!governanceReady && !automation.enabled} onCheckedChange={(enabled) => onChange({ ...automation, enabled })} /></div>
           {!governanceReady && <div className="mt-4 rounded-[8px] bg-muted-surface p-4 text-[13px]"><strong>Auto-approval is unavailable</strong><p className="mt-1 text-ink-muted">{!hasActivePolicies ? "Add and activate an approved policy. " : ""}{!hasDelivery ? "Connect email or WhatsApp for live delivery." : ""}</p></div>}
-          <label className="mt-6 block"><span className="flex items-center justify-between"><span className="text-[10px] font-extrabold">Auto-approve threshold</span><strong className="text-[20px] tracking-[-0.04em]">{automation.auto_approve_threshold}%</strong></span><input type="range" min="80" max="99" value={automation.auto_approve_threshold} onChange={(event) => onChange({ ...automation, auto_approve_threshold: Number(event.target.value) })} className="mt-4 w-full accent-[var(--color-ink)]" /><span className="mt-2 flex justify-between text-[8px] font-bold text-ink-faint"><span>80%</span><span>99%</span></span></label>
-          <label className="mt-7 block border-t border-line pt-6"><span className="flex items-center justify-between"><span className="text-[10px] font-extrabold">Mandatory review below</span><strong className="text-[20px] tracking-[-0.04em]">{automation.mandatory_review_threshold}%</strong></span><input type="range" min="50" max="90" value={automation.mandatory_review_threshold} onChange={(event) => onChange({ ...automation, mandatory_review_threshold: Number(event.target.value) })} className="mt-4 w-full accent-[var(--color-ink)]" /><span className="mt-2 flex justify-between text-[8px] font-bold text-ink-faint"><span>50%</span><span>90%</span></span></label>
+          <label className="automation-range mt-6 block"><span className="flex items-center justify-between gap-4"><span>Auto-approve threshold</span><strong>{automation.auto_approve_threshold}%</strong></span><input type="range" min="80" max="99" value={automation.auto_approve_threshold} onChange={(event) => onChange({ ...automation, auto_approve_threshold: Number(event.target.value) })} /><span className="range-bounds"><span>80%</span><span>99%</span></span></label>
+          <label className="automation-range mt-7 block border-t border-line pt-6"><span className="flex items-center justify-between gap-4"><span>Mandatory review below</span><strong>{automation.mandatory_review_threshold}%</strong></span><input type="range" min="50" max="90" value={automation.mandatory_review_threshold} onChange={(event) => onChange({ ...automation, mandatory_review_threshold: Number(event.target.value) })} /><span className="range-bounds"><span>50%</span><span>90%</span></span></label>
           {automation.mandatory_review_threshold >= automation.auto_approve_threshold && <p className="mt-4 flex items-center gap-2 text-[10px] font-bold"><CircleAlert className="size-4" />The lower threshold must remain below auto-approve.</p>}
           {confirmSave ? <div className="mt-5 border-y border-line py-4 text-[13px]"><strong>Policy impact before save</strong><p className="mt-1 text-ink-muted">{autoCount} conversations would be eligible and {reviewCount} would require review. Fraud, security and financial-action cases remain blocked.</p><div className="mt-3 flex gap-2"><Button onClick={() => { onSave(); setConfirmSave(false); }} disabled={saving}><Save className="size-4" />Confirm and save</Button><Button variant="ghost" onClick={() => setConfirmSave(false)}>Cancel</Button></div></div> : <Button onClick={() => setConfirmSave(true)} disabled={saving || automation.mandatory_review_threshold >= automation.auto_approve_threshold || (automation.enabled && !governanceReady)} className="mt-7"><Save className="size-4" />Review changes</Button>}
         </Card>
@@ -689,12 +709,12 @@ function SettingsView({ automation, onChange, onSave, saving, tickets, integrati
         <div className="border-b border-line p-6"><h3 className="text-[16px] font-semibold tracking-[-0.02em]">Approved response policies</h3><p className="mt-2 max-w-2xl text-[13px] leading-5 text-ink-muted">Kora retrieves matching policy text before drafting and records every cited version in the case audit.</p></div>
         <div className="grid lg:grid-cols-[1fr_1fr]">
           <div className="border-b border-line p-6 lg:border-b-0 lg:border-r">
-            <div className="grid gap-3 sm:grid-cols-[1fr_110px]"><label className="grid gap-2 text-[9px] font-bold">Policy title<input value={policyDraft.title} onChange={(event) => setPolicyDraft({ ...policyDraft, title: event.target.value })} placeholder="Transfer reversal timeline" className="h-10 rounded-[7px] border border-line-strong px-3 text-[10px] outline-none focus:ring-2 focus:ring-ring" /></label><label className="grid gap-2 text-[9px] font-bold">Version<input value={policyDraft.version} onChange={(event) => setPolicyDraft({ ...policyDraft, version: event.target.value })} className="h-10 rounded-[7px] border border-line-strong px-3 text-[10px] outline-none focus:ring-2 focus:ring-ring" /></label></div>
-            <label className="mt-3 grid gap-2 text-[9px] font-bold">Source URL (optional)<input value={policyDraft.source_url} onChange={(event) => setPolicyDraft({ ...policyDraft, source_url: event.target.value })} placeholder="https://company.example/policy" className="h-10 rounded-[7px] border border-line-strong px-3 text-[10px] outline-none focus:ring-2 focus:ring-ring" /></label>
-            <label className="mt-3 grid gap-2 text-[9px] font-bold">Approved content<textarea value={policyDraft.content} onChange={(event) => setPolicyDraft({ ...policyDraft, content: event.target.value })} rows={7} placeholder="Paste the exact approved policy, required information, timeline and escalation path." className="resize-y rounded-[7px] border border-line-strong p-3 text-[10px] leading-5 outline-none focus:ring-2 focus:ring-ring" /></label>
+            <div className="grid gap-4 sm:grid-cols-[1fr_140px]"><label className="automation-field">Policy title<Input value={policyDraft.title} onChange={(event) => setPolicyDraft({ ...policyDraft, title: event.target.value })} placeholder="Transfer reversal timeline" /></label><label className="automation-field">Version<Input value={policyDraft.version} onChange={(event) => setPolicyDraft({ ...policyDraft, version: event.target.value })} /></label></div>
+            <label className="automation-field mt-4">Source URL (optional)<Input type="url" value={policyDraft.source_url} onChange={(event) => setPolicyDraft({ ...policyDraft, source_url: event.target.value })} placeholder="https://company.example/policy" /></label>
+            <label className="automation-field mt-4">Approved content<textarea value={policyDraft.content} onChange={(event) => setPolicyDraft({ ...policyDraft, content: event.target.value })} rows={7} placeholder="Paste the exact approved policy, required information, timeline and escalation path." /></label>
             <Button className="mt-3" disabled={policySaving || policyDraft.title.length < 3 || policyDraft.content.length < 20} onClick={async () => { const saved = await onCreatePolicy({ ...policyDraft, source_url: policyDraft.source_url || null }); if (saved) setPolicyDraft({ title: "", version: "1.0", source_url: "", content: "" }); }}><BookOpenCheck className="size-4" />{policySaving ? "Saving policy" : "Approve policy"}</Button>
           </div>
-          <div className="divide-y divide-line">{policies.length ? policies.map((policy) => <div key={policy.id} className="flex items-start justify-between gap-5 p-5"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-[13px]">{policy.title}</strong><Badge variant={policy.active ? "accent" : "neutral"} shape="pill">v{policy.version}</Badge></div><p className="mt-2 line-clamp-2 text-[12px] leading-5 text-ink-muted">{policy.content}</p></div><button type="button" role="switch" aria-label={`${policy.active ? "Deactivate" : "Activate"} ${policy.title}`} aria-checked={Boolean(policy.active)} onClick={() => onTogglePolicy(policy.id, !policy.active)} className={cn("relative h-11 w-11 shrink-0 rounded-full border transition-colors focus-visible:ring-2 focus-visible:ring-ring", policy.active ? "border-ink bg-ink" : "border-line-strong bg-muted-surface")}><span className={cn("absolute left-2 top-[13px] size-4 rounded-full bg-paper transition-transform", policy.active ? "translate-x-3" : "translate-x-0")} /></button></div>) : <div className="p-6"><BookOpenCheck className="size-5 text-ink-faint" /><strong className="mt-3 block text-[13px]">No approved policies</strong><p className="mt-1 max-w-md text-[12px] leading-5 text-ink-muted">Drafts remain human-reviewed until the first company policy is added.</p></div>}</div>
+          <div className="divide-y divide-line">{policies.length ? policies.map((policy) => <div key={policy.id} className="flex items-start justify-between gap-5 p-5"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-[13px]">{policy.title}</strong><Badge variant={policy.active ? "accent" : "neutral"} shape="pill">v{policy.version}</Badge></div><p className="mt-2 line-clamp-2 text-[12px] leading-5 text-ink-muted">{policy.content}</p></div><Switch aria-label={`${policy.active ? "Deactivate" : "Activate"} ${policy.title}`} checked={Boolean(policy.active)} onCheckedChange={(active) => onTogglePolicy(policy.id, active)} /></div>) : <div className="p-6"><BookOpenCheck className="size-5 text-ink-faint" /><strong className="mt-3 block text-[13px]">No approved policies</strong><p className="mt-1 max-w-md text-[12px] leading-5 text-ink-muted">Drafts remain human-reviewed until the first company policy is added.</p></div>}</div>
         </div>
       </div>
     </div>
@@ -755,8 +775,6 @@ const auditLabels = {
   proof_run_completed: "Historical evaluation completed",
   sensitive_data_revealed: "Sensitive data revealed"
 };
-const auditValueLabels = { assigned_to_specialist: "Assigned to specialist", routed: "Routed by agent", approved: "Approved by agent", auto_approved: "Auto-approved" };
-
 function DecisionAuditView({ items, loading }) {
   const [search, setSearch] = useState("");
   const [eventType, setEventType] = useState("all");
@@ -770,7 +788,32 @@ function DecisionAuditView({ items, loading }) {
   const exportCsv = () => { const rows = [["time", "case", "customer", "event", "actor", "decision"], ...filtered.map((item) => [item.created_at, item.case_id, item.customer_id, auditLabels[item.event_type] || item.event_type, item.actor || "System", item.decision.intent || item.decision.status || "Recorded action"])]; const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "kora-filtered-audit.csv"; link.click(); URL.revokeObjectURL(link.href); };
   const events = [...new Set(items.map((item) => item.event_type))];
   const actors = [...new Set(items.map(displayActor))];
-  return <div className="view-padding"><div className="page-heading page-heading-row"><div><h2>Decision audit</h2><p>Search and inspect automated decisions, agent actions and governance changes.</p></div><Button variant="outline" onClick={exportCsv} disabled={!filtered.length}><Download />Export filtered results</Button></div><div className="audit-filters"><label><Search /><span className="sr-only">Search audit trail</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search case, customer or actor" /></label><input type="date" aria-label="Start date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /><Select value={eventType} onValueChange={setEventType}><SelectTrigger aria-label="Event type"><SelectValue placeholder="Event type" /></SelectTrigger><SelectContent><SelectItem value="all">All event types</SelectItem>{events.map((value) => <SelectItem key={value} value={value}>{auditLabels[value] || value.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select><Select value={actor} onValueChange={setActor}><SelectTrigger aria-label="Actor"><SelectValue placeholder="Actor" /></SelectTrigger><SelectContent><SelectItem value="all">All actors</SelectItem>{actors.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><div className="table-surface audit-table">{loading ? <div className="space-y-3 p-5"><Skeleton className="h-12 w-full" /><Skeleton className="h-16 w-full" /></div> : filtered.length ? <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Case</TableHead><TableHead>Event</TableHead><TableHead>Decision</TableHead><TableHead>Actor</TableHead><TableHead><span className="sr-only">Details</span></TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => { const summary = item.decision.intent || item.decision.status || "Recorded action"; return <TableRow key={item.id}><TableCell><time>{formatDate(item.created_at)}</time></TableCell><TableCell><strong>{item.case_id}</strong></TableCell><TableCell>{auditLabels[item.event_type] || item.event_type.replaceAll("_", " ")}</TableCell><TableCell>{summary}</TableCell><TableCell>{item.actor || "System"}</TableCell><TableCell><details className="audit-expansion"><summary>View reasoning</summary><div><p><strong>Reason:</strong> {item.guardrails.reason || item.decision.evidence?.join("; ") || "Agent decision"}</p><p><strong>Customer:</strong> {item.customer_id}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></TableCell></TableRow>; })}</TableBody></Table> : <p className="compact-empty">No audit events match these filters.</p>}</div></div>;
+  const hasFilters = Boolean(search || dateFrom || eventType !== "all" || actor !== "all");
+  const clearFilters = () => { setSearch(""); setDateFrom(""); setEventType("all"); setActor("all"); };
+  const eventName = (item) => auditLabels[item.event_type] || item.event_type.replaceAll("_", " ");
+  const decisionSummary = (item) => item.decision.intent || item.decision.status || "Recorded action";
+  const reason = (item) => item.guardrails.reason || item.decision.evidence?.join("; ") || "Agent decision";
+  return (
+    <div className="view-padding">
+      <div className="page-heading page-heading-row">
+        <div><h2>Decision audit</h2><p>Search and inspect automated decisions, agent actions and governance changes.</p></div>
+        <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}><Download className="size-4" />Export results</Button>
+      </div>
+      <section className="audit-filter-panel" aria-label="Audit filters">
+        <div className="audit-filters">
+          <div className="audit-search"><Search className="size-4" /><span className="sr-only">Search audit trail</span><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search case, customer or actor" /></div>
+          <Suspense fallback={<Skeleton className="h-11 w-full" />}><AuditDatePicker value={dateFrom} onChange={setDateFrom} /></Suspense>
+          <Select value={eventType} onValueChange={setEventType}><SelectTrigger aria-label="Event type"><SelectValue placeholder="Event type" /></SelectTrigger><SelectContent><SelectItem value="all">All event types</SelectItem>{events.map((value) => <SelectItem key={value} value={value}>{auditLabels[value] || value.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select>
+          <Select value={actor} onValueChange={setActor}><SelectTrigger aria-label="Actor"><SelectValue placeholder="Actor" /></SelectTrigger><SelectContent><SelectItem value="all">All actors</SelectItem>{actors.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>
+        </div>
+        <div className="audit-filter-summary"><p><strong>{filtered.length}</strong> of {items.length} events shown</p>{hasFilters && <Button variant="ghost" size="sm" onClick={clearFilters}><X className="size-4" />Clear filters</Button>}</div>
+      </section>
+      {loading ? <div className="table-surface space-y-3 p-5"><Skeleton className="h-12 w-full" /><Skeleton className="h-16 w-full" /></div> : filtered.length ? <>
+        <div className="table-surface audit-table audit-table-desktop"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Case</TableHead><TableHead>Event</TableHead><TableHead>Decision</TableHead><TableHead>Actor</TableHead><TableHead><span className="sr-only">Details</span></TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => <TableRow key={item.id}><TableCell><time>{formatDate(item.created_at)}</time></TableCell><TableCell><strong>{item.case_id}</strong><small className="mt-1 block">{item.customer_id}</small></TableCell><TableCell>{eventName(item)}</TableCell><TableCell><strong>{decisionSummary(item)}</strong></TableCell><TableCell>{displayActor(item)}</TableCell><TableCell><details className="audit-expansion"><summary>View reasoning</summary><div><p><strong>Reason:</strong> {reason(item)}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></TableCell></TableRow>)}</TableBody></Table></div>
+        <div className="audit-mobile-list">{filtered.map((item) => <article key={item.id} className="audit-mobile-record"><div className="audit-record-heading"><div><span>{eventName(item)}</span><strong>{decisionSummary(item)}</strong></div><time>{formatDate(item.created_at)}</time></div><dl><div><dt>Case</dt><dd>{item.case_id}</dd></div><div><dt>Actor</dt><dd>{displayActor(item)}</dd></div></dl><details className="audit-expansion"><summary>View decision reasoning <ChevronDown className="size-4" /></summary><div><p><strong>Reason:</strong> {reason(item)}</p><p><strong>Customer:</strong> {item.customer_id}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></article>)}</div>
+      </> : <p className="compact-empty">No audit events match these filters. Clear one or more filters to broaden the result.</p>}
+    </div>
+  );
 }
 
 function DashboardApp() {
@@ -886,6 +929,10 @@ function DashboardApp() {
   useEffect(() => {
     if (activeView === "audit" && backend.state === "online") refreshAudit();
   }, [activeView, backend.state]);
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+    document.getElementById("main-content")?.scrollTo({ top: 0, behavior: "auto" });
+  }, [activeView]);
 
   const visibleTickets = useMemo(() => tickets.filter((ticket) => {
     const text = `${ticket.id} ${ticket.customer.name} ${ticket.message} ${ticket.intent}`.toLowerCase();
@@ -1179,6 +1226,7 @@ function DashboardApp() {
     queueScrollPosition.current = queueScrollRef.current?.scrollTop || 0;
     setSelectedId(id);
     setMobileCaseOpen(true);
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
   };
 
   const returnToQueue = () => {
@@ -1215,6 +1263,7 @@ function DashboardApp() {
     setActiveView("queue");
     setSelectedId(id);
     setMobileCaseOpen(true);
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
   };
 
   if (!signedIn) return <SignedOutView onReturn={() => setSignedIn(true)} />;
@@ -1236,7 +1285,7 @@ function DashboardApp() {
         </main>
       </div>
       {railOpen && <button className="fixed inset-0 z-30 bg-ink/20 lg:hidden" onClick={() => setRailOpen(false)} aria-label="Close navigation overlay" />}
-      <div role="status" aria-live="polite" className={cn("fixed bottom-5 right-5 z-50 flex items-center gap-2 border border-ink bg-ink px-4 py-3 text-[11px] font-bold text-paper shadow-precision transition-all", toast ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")}><CheckCircle2 className="size-4 text-accent" />{toast}</div>
+      <div role="status" aria-live="polite" className={cn("fixed bottom-5 right-3 z-50 flex max-w-[calc(100vw-24px)] items-center gap-2 border border-ink bg-ink px-4 py-3 text-[13px] font-bold text-paper shadow-precision transition-all sm:right-5", toast ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")}><CheckCircle2 className="size-4 shrink-0 text-accent" />{toast}</div>
     </div>
   );
 }
