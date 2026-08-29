@@ -9,7 +9,13 @@ from .groq_triage import TriageModel
 from .guardrails import apply_guardrails
 from .launch_features import relevant_policies
 from .privacy import redact_for_model
-from .schemas import CustomerContext, ExtractedEntities, TriageRequest, TriageResult
+from .schemas import (
+    AutomationPolicyResult,
+    CustomerContext,
+    ExtractedEntities,
+    TriageRequest,
+    TriageResult,
+)
 from .triage_policy import apply_operational_policy
 
 
@@ -176,11 +182,8 @@ class TriageService:
             ),
         )
         auto_approved = automation_decision.eligible
-        decision["automation"] = {
-            "eligible": automation_decision.eligible,
-            "reason": automation_decision.reason,
-            "code": automation_decision.code,
-        }
+        automation_record = automation_decision.as_dict()
+        decision["automation"] = automation_record
         audit_id = self.database.add_audit(
             case_id=request.case_id,
             customer_id=request.customer.customer_id,
@@ -226,6 +229,7 @@ class TriageService:
             processing_ms=processing_ms,
             estimated_minutes_saved=estimated_minutes_saved,
             policy_citations=policy_citations,
+            automation=AutomationPolicyResult.model_validate(automation_record),
         )
         if auto_approved:
             self.database.add_audit(
@@ -265,6 +269,7 @@ class TriageService:
                 "processingMs": result.processing_ms,
                 "estimatedMinutesSaved": result.estimated_minutes_saved,
                 "policyCitations": result.policy_citations,
+                "automation": automation_record,
             },
             tenant_id,
         )

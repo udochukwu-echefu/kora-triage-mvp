@@ -35,6 +35,33 @@ class AutomationDecision:
     reason: str
     code: str
 
+    def as_dict(self) -> dict[str, bool | str]:
+        """Return the stable record consumed by persistence, workers, and clients."""
+        return {
+            "eligible": self.eligible,
+            "reason": self.reason,
+            "code": self.code,
+        }
+
+
+NOT_EVALUATED = AutomationDecision(
+    False,
+    "Human review required: this case has not been evaluated by the automation policy.",
+    "not_evaluated",
+)
+
+
+def recorded_automation_decision(record: object) -> AutomationDecision:
+    """Read a persisted policy result without re-implementing eligibility rules."""
+    if not isinstance(record, dict):
+        return NOT_EVALUATED
+    eligible = record.get("eligible")
+    reason = record.get("reason")
+    code = record.get("code")
+    if not isinstance(eligible, bool) or not isinstance(reason, str) or not isinstance(code, str):
+        return NOT_EVALUATED
+    return AutomationDecision(eligible, reason, code)
+
 
 def auto_approval_decision(
     *,

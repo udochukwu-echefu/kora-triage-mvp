@@ -161,7 +161,7 @@ export function runGroqTriage(ticket) {
   });
 }
 
-export function recordCaseAction(ticket, action, response = null, note = null) {
+export function recordCaseAction(ticket, action, response = null, note = null, options = {}) {
   return api(`/api/cases/${encodeURIComponent(ticket.id)}/${action}`, {
     method: "POST",
     headers: JSON_HEADERS,
@@ -169,7 +169,8 @@ export function recordCaseAction(ticket, action, response = null, note = null) {
       actor: "Ada Okafor",
       customer_id: ticket.customerId,
       note,
-      response
+      response,
+      require_automation_eligible: Boolean(options.requireAutomationEligible)
     })
   });
 }

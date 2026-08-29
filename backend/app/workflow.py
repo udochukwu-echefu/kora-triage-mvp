@@ -47,6 +47,16 @@ class SupportWorkflow:
         provider: str,
         tenant_id: str,
     ) -> dict:
+        with self.database.transaction():
+            return self._ingest(message, provider=provider, tenant_id=tenant_id)
+
+    def _ingest(
+        self,
+        message: InboundMessageRequest,
+        *,
+        provider: str,
+        tenant_id: str,
+    ) -> dict:
         payload = message.model_dump(mode="json")
         if not self.database.record_webhook(
             event_id=message.event_id,
@@ -251,7 +261,7 @@ class WorkflowWorker:
         )
         state = "review_required" if result.escalated else "triaged"
         self.database.set_lifecycle(ticket["id"], state, tenant_id=tenant_id)
-        if result.status == "Auto-approved":
+        if result.automation.eligible:
             self.database.enqueue_job(
                 tenant_id=tenant_id,
                 job_type="send_response",

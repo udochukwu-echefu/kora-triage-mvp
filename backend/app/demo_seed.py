@@ -74,6 +74,11 @@ def _ticket(
             "model": MODEL_NAME,
             "processingMs": processing_ms,
             "estimatedMinutesSaved": round(12 - processing_ms / 60_000, 1),
+            "automation": {
+                "eligible": False,
+                "reason": "Human review required: no approved policy matched.",
+                "code": "no_policy",
+            },
         },
     }
 
@@ -482,6 +487,7 @@ def seed_demo_data(database: Database) -> None:
                     "response": triage["response"],
                     "processing_ms": triage["processingMs"],
                     "estimated_minutes_saved": triage["estimatedMinutesSaved"],
+                    "automation": triage["automation"],
                 },
                 guardrails={
                     "escalated": triage["escalated"],

@@ -8,7 +8,8 @@ flowchart LR
     B --> C["PII redaction"]
     C --> D["Groq structured output"]
     D --> E["Deterministic routing and safety policy"]
-    E --> F["SQLite cases, memory, jobs, and audit trail"]
+    E --> P["Authoritative automation eligibility + reason"]
+    P --> F["SQLite cases, memory, jobs, and audit trail"]
     F --> G["Human review in the React workspace"]
     G --> H["Simulated delivery"]
     G --> I["Correction and evaluation record"]
@@ -31,9 +32,24 @@ flowchart LR
 - `backend/app/service.py`: redacted model request, policy application, persistence, and audit creation.
 - `backend/app/groq_triage.py`: schema-constrained model integration.
 - `backend/app/triage_policy.py` and `backend/app/guardrails.py`: deterministic operational and safety decisions.
+- `backend/app/automation.py`: the single automation-eligibility authority. It emits a stable `eligible`, `reason`, and `code` record consumed by persistence, delivery, queue metrics, and actions.
 - `backend/app/workflow.py`: idempotent inbound processing, retries, dead-letter handling, and simulated delivery.
 - `backend/app/database.py`: tenant-scoped SQLite persistence.
 - `src/App.jsx`: support queue, human review, proof mode, settings, and audit interface.
+
+## Automation policy boundary
+
+Automation eligibility is evaluated once in the backend after model output,
+operational policy, guardrails, approved-policy matching, information checks,
+and delivery readiness are known. The result is written to both the triage audit
+event and the ticket projection. React displays that recorded result; it does
+not reproduce the safety rules.
+
+The workflow worker reads the typed eligibility result to decide whether to
+enqueue delivery. Bulk approval also asks the API to require recorded
+eligibility, and the API fails closed when the decision is missing, malformed,
+or ineligible. Legacy tickets are backfilled as `not_evaluated`, never inferred
+as safe.
 
 ## Demo boundary
 

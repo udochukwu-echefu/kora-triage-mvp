@@ -6,11 +6,13 @@ import pytest
 from fastapi import HTTPException
 
 from app import main
+from app.auth import Principal
 from app.database import Database
 from app.demo_seed import seed_demo_data
 from app.guardrails import apply_guardrails
 from app.privacy import redact_for_model
 from app.schemas import (
+    ActionRequest,
     CustomerContext,
     ExtractedEntities,
     Intent,
@@ -185,6 +187,52 @@ async def test_service_deduplicates_memory_and_restores_greeting(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+async def test_triage_endpoint_uses_the_persisted_case_payload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database = Database(tmp_path / "kora.db")
+    database.initialize()
+    seed_demo_data(database)
+    ticket = database.support_ticket("KOR-2401")
+    captured = {}
+
+    class CapturingService:
+        async def triage(self, value, *, tenant_id):
+            captured["request"] = value
+            captured["tenant_id"] = tenant_id
+            return {"ok": True}
+
+    monkeypatch.setattr(main, "database", database)
+    monkeypatch.setattr(main, "get_service", lambda: CapturingService())
+    result = await main.triage(
+        TriageRequest(
+            case_id=ticket["id"],
+            channel="email" if ticket["channel"] == "whatsapp" else "whatsapp",
+            message="Tampered client-side message",
+            subject="Tampered subject",
+            customer=CustomerContext(
+                customer_id=ticket["customerId"],
+                name="Tampered Customer",
+                previous_context="Tampered context",
+                notes=["Tampered note"],
+            ),
+        ),
+        Principal("tenant-demo", "agent", "Agent", "support_agent"),
+    )
+
+    assert result == {"ok": True}
+    assert captured["tenant_id"] == "tenant-demo"
+    assert captured["request"].message == ticket["message"]
+    assert captured["request"].channel == ticket["channel"]
+    assert captured["request"].customer.name == ticket["customer"]["name"]
+
+
+def test_customer_names_cannot_be_only_whitespace() -> None:
+    with pytest.raises(ValueError):
+        CustomerContext(customer_id="CUS-TEST", name="   ")
+
+
+@pytest.mark.asyncio
 async def test_confidence_alone_cannot_auto_approve_without_governance(tmp_path: Path) -> None:
     database = Database(tmp_path / "kora.db")
     database.initialize()
@@ -245,8 +293,48 @@ async def test_low_risk_case_needs_policy_delivery_and_confidence_to_auto_approv
         delivery_available=True,
     ).triage(safe_request)
     assert result.status == "Auto-approved"
+    assert result.automation.code == "eligible"
     assert database.latest_triage_for_case("KOR-TEST")["decision"]["automation"]["code"] == "eligible"
     assert database.audit_event_exists("KOR-TEST", "safety_policy_auto_approved")
+
+
+@pytest.mark.asyncio
+async def test_bulk_approval_cannot_bypass_recorded_automation_policy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database = Database(tmp_path / "kora.db")
+    database.initialize()
+    database.add_audit(
+        case_id="KOR-BLOCKED",
+        customer_id="CUS-BLOCKED",
+        event_type="triage",
+        model="fake",
+        request={},
+        decision={
+            "response": "A draft that still requires review.",
+            "automation": {
+                "eligible": False,
+                "reason": "Human review required: customer delivery is not connected.",
+                "code": "delivery",
+            },
+        },
+        guardrails={"escalated": False},
+    )
+    monkeypatch.setattr(main, "database", database)
+
+    with pytest.raises(HTTPException) as error:
+        await main.approve(
+            "KOR-BLOCKED",
+            ActionRequest(
+                customer_id="CUS-BLOCKED",
+                response="A draft that still requires review.",
+                require_automation_eligible=True,
+            ),
+            Principal("tenant-demo", "agent", "Agent", "support_agent"),
+        )
+
+    assert error.value.status_code == 409
+    assert "delivery is not connected" in error.value.detail
 
 
 def test_case_actions_reject_a_different_customer(tmp_path: Path, monkeypatch) -> None:

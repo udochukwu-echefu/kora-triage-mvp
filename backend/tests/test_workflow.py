@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -110,6 +111,37 @@ def test_inbound_events_are_idempotent_threaded_and_tenant_isolated(
     assert database.support_ticket(first["case_id"], "tenant-b") is None
 
 
+def test_failed_inbound_ingest_rolls_back_and_can_be_retried(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database = Database(tmp_path / "kora.db")
+    database.initialize()
+    workflow = SupportWorkflow(database)
+    original_add_message = database.add_message
+
+    def fail_add_message(**_kwargs) -> None:
+        raise sqlite3.OperationalError("simulated write failure")
+
+    monkeypatch.setattr(database, "add_message", fail_add_message)
+    with pytest.raises(sqlite3.OperationalError, match="simulated write failure"):
+        workflow.ingest(
+            inbound("event-retry", "message-retry"),
+            provider="postmark",
+            tenant_id="tenant-a",
+        )
+
+    monkeypatch.setattr(database, "add_message", original_add_message)
+    retried = workflow.ingest(
+        inbound("event-retry", "message-retry"),
+        provider="postmark",
+        tenant_id="tenant-a",
+    )
+
+    assert retried["duplicate"] is False
+    assert len(database.conversation(retried["case_id"], "tenant-a")) == 1
+    assert database.job_counts("tenant-a")["queued"] == 1
+
+
 def test_email_reply_resolves_the_case_from_kora_outbound_message_id(
     tmp_path: Path,
 ) -> None:
@@ -170,6 +202,11 @@ async def test_worker_keeps_demo_delivery_human_reviewed(
 
     assert await worker.process_one() is True
     assert database.lifecycle(accepted["case_id"], "tenant-a")["state"] == "triaged"
+    assert database.support_ticket(accepted["case_id"], "tenant-a")["automation"] == {
+        "eligible": False,
+        "reason": "Human review required: no approved policy matched.",
+        "code": "no_policy",
+    }
     assert database.job_counts("tenant-a")["queued"] == 0
     assert await worker.process_one() is False
     assert database.lifecycle(accepted["case_id"], "tenant-a")["state"] == "triaged"

@@ -7,7 +7,7 @@ All evaluation data in this repository is synthetic and authored for this portfo
 | Suite | Cases | Calls Groq | Purpose | Current status |
 | --- | ---: | --- | --- | --- |
 | Demonstration queue | 18 | No | Populate the first-run interface with stored model-output snapshots | 32 of 36 stored intent and urgency labels match their references (89%) |
-| Gold policy dataset | 100 | No during pytest | Exercise deterministic routing, urgency, entities, language, and domain coverage | Included in the 132 passing pytest cases |
+| Gold policy dataset | 100 | No during pytest | Exercise deterministic routing, urgency, entities, language, and domain coverage | Included in the 138 passing pytest cases |
 | Live Groq smoke set | 11 | Yes | Check schema-constrained model integration across all 11 supported intents | 11/11 passed on 8 August 2026; see `evidence/live-smoke-report.json` |
 | Full live benchmark | 100 | Yes | Exploratory model-quality measurement | Latest attempt stopped at 24 of 100 because of provider quota; it is not a completed result |
 

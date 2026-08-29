@@ -18,6 +18,7 @@ from app.schemas import (
     Urgency,
 )
 from app.service import TriageService
+from app.triage_policy import apply_operational_policy
 
 
 class PolicyAwareModel:
@@ -227,3 +228,46 @@ async def test_paystack_verification_is_read_only_and_normalised() -> None:
     assert result["verified"] is True
     assert result["amount"] == 45000
     assert result["currency"] == "NGN"
+
+
+@pytest.mark.asyncio
+async def test_paystack_invalid_json_is_reported_as_an_upstream_failure() -> None:
+    verifier = PaystackVerifier(
+        "test-secret",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(502, content=b"not-json")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="invalid response"):
+        await verifier.verify("TRX-12345")
+
+
+def test_decimal_amount_does_not_inflate_operational_urgency() -> None:
+    result = apply_operational_policy(
+        TriageRequest(
+            case_id="KOR-DECIMAL",
+            channel="email",
+            message="Production is halted after a failed payment of ₦1,500.50.",
+            customer=CustomerContext(customer_id="CUS-DECIMAL", name="Test Customer"),
+        ),
+        ModelTriage(
+            intent=Intent.payment_failed,
+            urgency=Urgency.high,
+            sentiment=Sentiment.concerned,
+            route=Route.payments,
+            confidence=0.95,
+            entities=ExtractedEntities(
+                amount="₦1,500.50",
+                transaction_id=None,
+                order_id=None,
+                account_last4=None,
+                card_last4=None,
+            ),
+            memory_used=False,
+            evidence=["Payment failure blocks production."],
+            draft_response="Hello Customer, Billing will review the payment.",
+        ),
+    )
+
+    assert result.triage.urgency == Urgency.medium

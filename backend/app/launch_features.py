@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 
@@ -151,7 +152,10 @@ class PaystackVerifier:
                 f"{self.base_url}/transaction/verify/{safe_reference}",
                 headers={"Authorization": f"Bearer {self.secret_key}"},
             )
-        payload = response.json()
+        try:
+            payload = response.json()
+        except json.JSONDecodeError as error:
+            raise RuntimeError("Paystack returned an invalid response.") from error
         if response.status_code >= 400 or not payload.get("status"):
             raise RuntimeError(payload.get("message") or "Paystack verification failed.")
         data = payload.get("data") or {}

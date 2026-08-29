@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterator
+
+from .automation import NOT_EVALUATED, recorded_automation_decision
 
 
 SCHEMA = """
@@ -190,6 +193,9 @@ ON proof_run(tenant_id, created_at DESC);
 class Database:
     def __init__(self, path: Path):
         self.path = path
+        self._active_connection: ContextVar[sqlite3.Connection | None] = ContextVar(
+            f"database_connection_{id(self)}", default=None
+        )
 
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -208,6 +214,35 @@ class Database:
                 "CREATE UNIQUE INDEX idx_memory_customer_case "
                 "ON customer_memory(tenant_id, customer_id, case_id)"
             )
+            self._backfill_automation_records(connection)
+
+    @staticmethod
+    def _backfill_automation_records(connection: sqlite3.Connection) -> None:
+        """Give legacy tickets a safe persisted policy result instead of client inference."""
+        rows = connection.execute(
+            "SELECT case_id, tenant_id, triage_json FROM support_ticket"
+        ).fetchall()
+        for row in rows:
+            triage = json.loads(row["triage_json"])
+            if recorded_automation_decision(triage.get("automation")).code != "not_evaluated":
+                continue
+            audit = connection.execute(
+                "SELECT decision_json FROM audit_log "
+                "WHERE tenant_id = ? AND case_id = ? AND event_type = 'triage' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (row["tenant_id"], row["case_id"]),
+            ).fetchone()
+            record = NOT_EVALUATED
+            if audit:
+                record = recorded_automation_decision(
+                    json.loads(audit["decision_json"]).get("automation")
+                )
+            triage["automation"] = record.as_dict()
+            connection.execute(
+                "UPDATE support_ticket SET triage_json = ? "
+                "WHERE case_id = ? AND tenant_id = ?",
+                (json.dumps(triage), row["case_id"], row["tenant_id"]),
+            )
 
     @staticmethod
     def _ensure_column(
@@ -219,12 +254,40 @@ class Database:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
+        active = self._active_connection.get()
+        if active is not None:
+            yield active
+            return
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
         try:
             yield connection
             connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
         finally:
+            connection.close()
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Share one atomic SQLite transaction across repository operations."""
+        active = self._active_connection.get()
+        if active is not None:
+            yield active
+            return
+        connection = sqlite3.connect(self.path)
+        connection.row_factory = sqlite3.Row
+        token = self._active_connection.set(connection)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            self._active_connection.reset(token)
             connection.close()
 
     def memories_for(
@@ -455,7 +518,8 @@ class Database:
         # BEGIN IMMEDIATE serializes allocation so simultaneous webhooks cannot
         # claim the same human-readable case number.
         with self.connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+            if not connection.in_transaction:
+                connection.execute("BEGIN IMMEDIATE")
             sequence = connection.execute(
                 "SELECT next_value FROM case_sequence WHERE name = 'support_case'"
             ).fetchone()
@@ -916,7 +980,8 @@ class Database:
     ) -> dict:
         now = datetime.now(UTC).isoformat()
         with self.connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+            if not connection.in_transaction:
+                connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 "SELECT assigned_to FROM case_lifecycle "
                 "WHERE case_id = ? AND tenant_id = ?",

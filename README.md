@@ -4,9 +4,9 @@
 
 A support-triage portfolio demonstration for a Nigerian fintech or e-commerce SMB. The public deployment uses synthetic data, demo authentication, and simulated delivery; it is not connected to a real support operation.
 
-**Evidence:** [architecture](docs/architecture.md) · [evaluation methodology](docs/evaluation.md) · [11-case live smoke report](evidence/live-smoke-report.json) · [failure examples](docs/failure-examples.md) · [limitations](docs/limitations.md) · [132-test summary](evidence/test-summary.json)
+**Evidence:** [architecture](docs/architecture.md) · [evaluation methodology](docs/evaluation.md) · [11-case live smoke report](evidence/live-smoke-report.json) · [failure examples](docs/failure-examples.md) · [limitations](docs/limitations.md) · [150-test summary](evidence/test-summary.json)
 
-Latest verification: 132 backend tests pass. A fresh 11-case synthetic Groq smoke run on 8 August 2026 passed 11/11 with 13.669-second median latency, 16.605-second p95 latency, and 22,275 total tokens. These are demo measurements, not customer-traffic evidence.
+Latest verification: 150 backend tests pass. A fresh 11-case synthetic Groq smoke run on 8 August 2026 passed 11/11 with 13.669-second median latency, 16.605-second p95 latency, and 22,275 total tokens. These are demo measurements, not customer-traffic evidence.
 
 ## Product capabilities
 
@@ -19,6 +19,7 @@ Latest verification: 132 backend tests pass. A fresh 11-case synthetic Groq smok
 - Operational metrics, routing insights, and a decision audit trail
 - 18 realistic processed model snapshots for a useful first-run queue
 - Confidence-threshold automation controls with mandatory-review boundaries
+- One authoritative, persisted automation-eligibility decision shared by delivery, queue metrics, and bulk actions
 - SLA-at-risk flags, queue filters, and guarded bulk actions
 - Loading, empty, filtered, and responsive interface states
 - Idempotent inbound email and WhatsApp webhook adapters

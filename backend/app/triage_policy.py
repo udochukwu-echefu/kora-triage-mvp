@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 from .schemas import Intent, ModelTriage, Route, TriageRequest, Urgency
 
@@ -30,12 +31,15 @@ class PolicyResult:
     overrides: tuple[str, ...]
 
 
-def _numeric_amount(message: str) -> int | None:
+def _numeric_amount(message: str) -> Decimal | None:
     match = AMOUNT.search(message)
     if not match:
         return None
-    digits = re.sub(r"\D", "", match.group(0))
-    return int(digits) if digits else None
+    numeric = re.sub(r"[^\d.]", "", match.group(0))
+    try:
+        return Decimal(numeric) if numeric else None
+    except InvalidOperation:
+        return None
 
 
 def _policy_urgency(request: TriageRequest, result: ModelTriage) -> Urgency:

@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from groq import APIConnectionError, APIStatusError, RateLimitError
 
 from .auth import Principal, require_role, resolve_principal
+from .automation import recorded_automation_decision
 from .channels import ChannelGateway
 from .config import settings
 from .database import Database
@@ -30,6 +31,7 @@ from .schemas import (
     AutomationSettings,
     CaseAssignmentRequest,
     CaseNoteRequest,
+    CustomerContext,
     FeedbackRequest,
     InboundMessageRequest,
     KnowledgePolicyRequest,
@@ -251,8 +253,31 @@ async def integrations(principal: Principal = Depends(current_principal)) -> dic
 async def triage(
     request: TriageRequest, principal: Principal = Depends(current_principal)
 ) -> TriageResult:
+    ticket = database.support_ticket(request.case_id, principal.tenant_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Case not found.")
+    if ticket["customerId"] != request.customer.customer_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Customer does not match the requested case.",
+        )
+    canonical_request = request.model_copy(
+        update={
+            "channel": ticket["channel"],
+            "message": ticket["message"],
+            "subject": ticket.get("subject"),
+            "customer": CustomerContext(
+                customer_id=ticket["customerId"],
+                name=ticket["customer"]["name"],
+                previous_context=ticket["customer"].get("previousContext", ""),
+                notes=ticket["customer"].get("notes", []),
+            ),
+        }
+    )
     try:
-        return await get_service().triage(request, tenant_id=principal.tenant_id)
+        return await get_service().triage(
+            canonical_request, tenant_id=principal.tenant_id
+        )
     except RateLimitError as error:
         raise HTTPException(status_code=429, detail="Groq rate limit reached. Try again shortly.") from error
     except APIConnectionError as error:
@@ -507,6 +532,11 @@ async def approve(
     principal: Principal = Depends(current_principal),
 ) -> dict:
     latest = validated_case(case_id, action.customer_id, principal.tenant_id)
+    automation_decision = recorded_automation_decision(
+        latest["decision"].get("automation")
+    )
+    if action.require_automation_eligible and not automation_decision.eligible:
+        raise HTTPException(status_code=409, detail=automation_decision.reason)
     if latest["guardrails"].get("escalated"):
         raise HTTPException(
             status_code=409,

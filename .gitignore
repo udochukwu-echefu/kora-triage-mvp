@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.vite-cache/
 backend/.venv/
 backend/.env
 backend/data/

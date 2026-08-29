@@ -20,6 +20,9 @@ import {
 } from "./components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
+import { Input } from "./components/ui/input";
+import { ScrollArea } from "./components/ui/scroll-area";
+import { Switch } from "./components/ui/switch";
 import {
   addCaseNote, createPolicy, createProofRun, getAutomationSettings, getBackendAudit,
   getBackendHealth, getCases, getCustomerMemory, getCaseConversation, getCurrentUser,
@@ -29,6 +32,7 @@ import {
   verifyPaystackTransaction
 } from "./api";
 const InsightsView = lazy(() => import("./components/InsightsView"));
+const AuditDatePicker = lazy(() => import("./components/AuditDatePicker"));
 
 const seedTickets = messages.map((message) => ({
   ...message,
@@ -72,35 +76,27 @@ const teamOptions = ["Transfers", "Fraud", "Logistics", "Billing", "Account Supp
 const intentOptions = ["Transfer pending", "Payment failed", "Duplicate debit", "Fraud report", "Delivery delayed", "Delivery missing", "Delivery change", "Account access", "Account verification", "Refund pending", "General enquiry"];
 const urgencyOptions = ["low", "medium", "high", "critical"];
 
-const riskyIntents = new Set(["Fraud report", "Duplicate debit", "Payment failed", "Transfer pending", "Account access"]);
-const riskyRoutes = new Set(["Fraud", "Transfers", "Billing", "Account Support", "Compliance"]);
-
-function automationDecision(ticket, automation, governance = {}) {
+function automationDecision(ticket) {
   if (!isProcessed(ticket)) return { state: "pending", reason: "Classification pending." };
-  if (!ticket.policyCitations?.length) return { state: "mandatory", reason: "Human review required: no approved policy matched." };
-  if (!automation.enabled) return { state: "mandatory", reason: "Human review required: auto-approval is off." };
-  if (ticket.escalated || ticket.escalationReason) return { state: "mandatory", reason: ticket.escalationReason ? `Human review required: ${ticket.escalationReason}` : "Human review required: a safety guardrail was triggered." };
-  if (riskyIntents.has(ticket.intent) || riskyRoutes.has(ticket.route)) return { state: "mandatory", reason: "Human review required: this case involves security or financial risk." };
-  if (ticket.entities?.transactionId && !ticket.verifiedTransaction) return { state: "mandatory", reason: "Human review required: transaction verification is unavailable." };
-  if (["please provide", "kindly provide", "could you share", "send us your"].some((phrase) => ticket.responseDraft?.toLowerCase().includes(phrase))) return { state: "mandatory", reason: "Human review required: customer information is incomplete." };
-  const delivery = ticket.channel === "email" ? governance.integrations?.email : governance.integrations?.whatsapp;
-  if (!delivery?.configured || governance.integrations?.mode !== "live") return { state: "mandatory", reason: "Human review required: customer delivery is not connected." };
-  if (Math.round(ticket.confidence * 100) < automation.auto_approve_threshold) return { state: "mandatory", reason: `Human review required: confidence is below ${automation.auto_approve_threshold}%.` };
-  return { state: "auto", reason: "Eligible for auto-approval under the active safety policy." };
+  const recorded = ticket.automation;
+  if (!recorded || typeof recorded.eligible !== "boolean" || !recorded.reason) {
+    return { state: "mandatory", reason: "Human review required: this case has not been evaluated by the automation policy.", code: "not_evaluated" };
+  }
+  return { state: recorded.eligible ? "auto" : "mandatory", reason: recorded.reason, code: recorded.code };
 }
 
-function policyState(ticket, automation, governance) {
-  return automationDecision(ticket, automation, governance).state;
+function policyState(ticket) {
+  return automationDecision(ticket).state;
 }
 
-function operationalState(ticket, automation, governance) {
+function operationalState(ticket) {
   if (!isProcessed(ticket)) return "pending";
   const lifecycle = ticket.lifecycle?.state;
   if (lifecycle === "resolved") return "Resolved";
   if (["sent", "delivered", "replied"].includes(lifecycle)) return "Waiting on customer";
   if (ticket.escalated || lifecycle === "review_required") return "Escalated";
   if (ticket.lifecycle?.assigned_to || ticket.assignee) return "Assigned";
-  if (policyState(ticket, automation, governance) === "auto" || ticket.status === "Auto-approved") return "Auto-approved";
+  if (policyState(ticket) === "auto" || ticket.status === "Auto-approved") return "Auto-approved";
   return "Needs review";
 }
 
@@ -113,8 +109,8 @@ function slaState(ticket) {
   return null;
 }
 
-function lowRisk(ticket, automation, governance) {
-  return policyState(ticket, automation, governance) === "auto";
+function lowRisk(ticket) {
+  return policyState(ticket) === "auto";
 }
 
 function maskSensitive(value = "") {
@@ -148,7 +144,7 @@ function Rail({ activeView, onView, open, onClose, user }) {
   const initials = displayName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   return (
     <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-[232px] flex-col border-r border-white/10 bg-shell px-3 py-4 text-paper transition-transform lg:translate-x-0", open ? "translate-x-0 shadow-precision" : "-translate-x-full")} aria-label="Main navigation">
-      <button onClick={onClose} className="absolute right-2 top-2 rounded-[6px] p-2 text-paper/60 hover:bg-white/10 hover:text-paper lg:hidden" aria-label="Close navigation"><X className="size-4" /></button>
+      <button onClick={onClose} className="absolute right-2 top-2 grid size-11 place-items-center rounded-[6px] text-paper/60 hover:bg-white/10 hover:text-paper lg:hidden" aria-label="Close navigation"><X className="size-4" /></button>
       <div className="flex h-12 items-center gap-3 px-2" aria-label="Kora"><span className="grid size-9 place-items-center rounded-[8px] bg-accent text-xs font-semibold text-accent-ink">KR</span><span><strong className="block text-[14px] font-semibold tracking-[-0.03em]">Kora</strong><small className="mt-1 block text-[10px] font-medium text-paper/45">Support operations</small></span></div>
       <TooltipProvider>
         <nav className="mt-8 flex flex-1 flex-col gap-1.5">
@@ -161,7 +157,7 @@ function Rail({ activeView, onView, open, onClose, user }) {
           ))}
         </nav>
         <div className="border-t border-white/10 pt-3">
-          <button onClick={() => onView("settings")} className="flex h-14 w-full items-center gap-3 rounded-[7px] px-2 text-left hover:bg-white/[.07]"><span className="grid size-9 place-items-center rounded-full bg-accent text-[10px] font-extrabold text-accent-ink">{initials}</span><span><strong className="block text-[11px] font-extrabold">{displayName}</strong><small className="mt-1 block capitalize text-[9px] font-semibold text-paper/40">{role}</small></span></button>
+          <button onClick={() => onView("settings")} className="flex min-h-16 w-full items-center gap-3 rounded-[7px] px-2 text-left hover:bg-white/[.07]"><span className="grid size-10 place-items-center rounded-full bg-accent text-[12px] font-extrabold text-accent-ink">{initials}</span><span><strong className="block text-[14px] font-extrabold">{displayName}</strong><small className="mt-1 block capitalize text-[12px] font-semibold text-paper/65">{role}</small></span></button>
         </div>
       </TooltipProvider>
     </aside>
@@ -173,7 +169,14 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
   const displayName = user?.display_name || "Ada Okafor";
   const role = (user?.role || "support_manager").replaceAll("_", " ");
   const initials = displayName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase();
-  const titles = { queue: "Queue", insights: "Insights", proof: "Historical evaluation", audit: "Decision audit", team: "Team coverage", settings: "Confidence automation" };
+  const titles = {
+    queue: { full: "Queue", compact: "Queue" },
+    insights: { full: "Insights", compact: "Insights" },
+    proof: { full: "Historical evaluation", compact: "Evaluation" },
+    audit: { full: "Decision audit", compact: "Audit" },
+    team: { full: "Team coverage", compact: "Team" },
+    settings: { full: "Confidence automation", compact: "Automation" }
+  };
   const engineLabel = backend.state === "checking"
     ? "Checking API"
     : backend.configured
@@ -191,9 +194,9 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
   const slaRiskCount = tickets.filter((ticket) => slaState(ticket)).length;
   return (
     <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-line bg-paper px-4 sm:px-7 lg:px-8">
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         <Button variant="outline" size="icon" className="lg:hidden" onClick={onMenu} aria-label="Open navigation"><Menu className="size-4" /></Button>
-        <h1 className="text-[20px] font-semibold tracking-[-0.035em]">{titles[activeView]}</h1>
+        <h1 className="truncate text-[18px] font-semibold tracking-[-0.035em] sm:text-[20px]"><span className="sm:hidden">{titles[activeView].compact}</span><span className="hidden sm:inline">{titles[activeView].full}</span></h1>
       </div>
       <div className="flex items-center gap-2">
         <div className="hidden items-center gap-2 border border-line px-3 py-2 text-[10px] font-bold text-ink-muted sm:flex"><span className={cn("size-2 rounded-full", backend.configured ? "bg-accent" : "bg-line-strong")} />{engineLabel}</div>
@@ -236,7 +239,7 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
                       </span>
                       <span className="mt-2 block text-[12px] leading-[1.5] text-ink-muted">{intentShort[notification.intent] || notification.intent} · <span className="capitalize">{notification.urgency} urgency</span></span>
                       <span className="mt-2.5 flex items-center gap-2 text-[12px] font-semibold text-ink-faint">
-                        <span>{sla ? `SLA: ${sla.label}` : `Waiting ${formatRelative(notification.minutesAgo)}`}</span><span className="ml-auto">{operationalState(notification, { enabled: false })}</span>
+                        <span>{sla ? `SLA: ${sla.label}` : `Waiting ${formatRelative(notification.minutesAgo)}`}</span><span className="ml-auto">{operationalState(notification)}</span>
                       </span>
                     </span>
                   </DropdownMenuItem>
@@ -256,7 +259,7 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56" sideOffset={8}>
-            <div className="px-2.5 py-2.5"><p className="text-[11px] font-extrabold">{displayName}</p><p className="mt-1 capitalize text-[9px] font-semibold text-ink-faint">{role}</p></div>
+            <div className="px-3 py-3"><p className="text-[14px] font-extrabold">{displayName}</p><p className="mt-1 capitalize text-[12px] font-semibold text-ink-muted">{role}</p></div>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Workspace</DropdownMenuLabel>
             <DropdownMenuItem onSelect={() => onView("queue")}><Inbox className="size-3.5" />Support queue</DropdownMenuItem>
@@ -287,7 +290,7 @@ function SignedOutView({ onReturn }) {
 function MetricsStrip({ tickets, automation, governance, onFilter }) {
   const open = tickets.filter((ticket) => !["resolved", "sent", "delivered"].includes(ticket.lifecycle?.state));
   const metrics = [
-    { key: "review", label: "Needs human review", value: open.filter((ticket) => policyState(ticket, automation, governance) === "mandatory").length, meta: `Open conversations, right now` },
+    { key: "review", label: "Needs human review", value: open.filter((ticket) => policyState(ticket) === "mandatory").length, meta: `Open conversations, right now` },
     { key: "sla", label: "SLA breached or at risk", value: open.filter((ticket) => slaState(ticket)).length, meta: "Open conversations, current SLA clock" },
     { key: "unassigned", label: "Unassigned conversations", value: open.filter((ticket) => !ticket.lifecycle?.assigned_to && !ticket.assignee && ticket.status !== "Assigned").length, meta: `Of ${open.length} open conversations` }
   ];
@@ -314,9 +317,13 @@ function EmptyQueue({ onReset }) {
   );
 }
 
+function EmptyCaseDetail() {
+  return <section className="compact-empty m-4 grid min-h-[320px] place-items-center rounded-[10px] border border-line bg-canvas p-8 text-center"><div><Inbox className="mx-auto mb-3 size-6 text-ink-faint" /><strong className="text-sm">No case selected</strong><p className="mt-2 max-w-sm text-ink-muted">New inbound cases will appear here when they arrive.</p></div></section>;
+}
+
 function TicketRow({ ticket, selected, checked, onSelect, onCheck, automation = { enabled: false, auto_approve_threshold: 95, mandatory_review_threshold: 70 }, governance }) {
   const sla = slaState(ticket);
-  const state = operationalState(ticket, automation, governance);
+  const state = operationalState(ticket);
   const stateVariant = state === "Needs review" || state === "Escalated" ? "strong" : state === "Auto-approved" ? "accent" : "neutral";
   return (
     <div data-ticket={ticket.id} className={cn("ticket-row group", selected && "bg-selected")}>
@@ -336,7 +343,7 @@ function QueuePane({ tickets, selectedId, onSelect, loading, query, onQuery, fil
   const [filtersOpen, setFiltersOpen] = useState(false);
   const reset = () => { onQuery(""); onFilters({ review: false, high: false, sla: false, unassigned: false, channel: "all", urgency: "all", team: "all" }); };
   const allSelected = tickets.length > 0 && tickets.every((ticket) => selectedIds.includes(ticket.id));
-  const selectedLowRisk = tickets.filter((ticket) => selectedIds.includes(ticket.id) && lowRisk(ticket, automation, governance)).length;
+  const selectedLowRisk = tickets.filter((ticket) => selectedIds.includes(ticket.id) && lowRisk(ticket)).length;
   const chip = (label, value, options, key) => (
     <Select value={value} onValueChange={(nextValue) => onFilters({ ...filters, [key]: nextValue })}>
       <SelectTrigger aria-label={`Filter by ${label.toLowerCase()}`} className={cn("h-9 min-w-[118px] bg-paper", value !== "all" && "border-ink bg-selected")}>
@@ -384,13 +391,13 @@ function TicketDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onRe
   const entities = Object.entries(ticket.entities).filter(([, value]) => value);
   const labels = { amount: "Amount", transactionId: "Transaction ID", orderId: "Order ID", account: "Account", card: "Card" };
   const sla = slaState(ticket);
-  const policy = policyState(ticket, automation);
+  const policy = policyState(ticket);
 
   return (
     <article className="detail-scroll rounded-[10px] border border-line bg-canvas" aria-labelledby="ticket-title">
       <header className="sticky top-0 z-10 flex min-h-[82px] items-center justify-between gap-4 border-b border-line bg-canvas px-5 sm:px-7">
         <div className="min-w-0"><div className="flex items-center gap-2"><span className="section-label">{ticket.id}</span><span className="text-ink-faint">/</span><span className="section-label">{ticket.channel}</span></div><h2 id="ticket-title" className="mt-1 truncate text-[20px] font-extrabold tracking-[-0.045em]">{ticket.customer.name}</h2></div>
-        <div className="flex flex-wrap items-center justify-end gap-2">{ticket.lifecycle?.assigned_to ? <Badge variant="outline" shape="pill"><UserRoundCheck className="size-3" />{ticket.lifecycle.assigned_to}</Badge> : <Button size="sm" variant="outline" onClick={() => onAssign(ticket.id, "me", null)}><UserPlus className="size-3.5" />Claim</Button>}{ticket.lifecycle?.state && <Badge variant="neutral" shape="pill"><span className="size-1.5 rounded-full bg-current" />{ticket.lifecycle.state.replaceAll("_", " ")}</Badge>}{sla && <Badge variant={sla.overdue ? "strong" : "outline"} shape="pill"><Timer className="size-3" />{sla.label}</Badge>}<UrgencyBadge urgency={ticket.urgency} /><DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="icon" aria-label="More case actions"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => navigator.clipboard?.writeText(`${window.location.origin}/app?case=${ticket.id}`)}>Copy case link</DropdownMenuItem>{ticket.lifecycle?.assigned_to && <DropdownMenuItem onSelect={() => onAssign(ticket.id, null, ticket.lifecycle.assigned_to)}>Release ownership</DropdownMenuItem>}<DropdownMenuItem>Mark as duplicate</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
+        <div className="flex flex-wrap items-center justify-end gap-2">{ticket.lifecycle?.assigned_to ? <Badge variant="outline" shape="pill"><UserRoundCheck className="size-3" />{ticket.lifecycle.assigned_to}</Badge> : <Button size="sm" variant="outline" onClick={() => onAssign(ticket.id, "me", null)}><UserPlus className="size-3.5" />Claim</Button>}{ticket.lifecycle?.state && <Badge variant="neutral" shape="pill"><span className="size-1.5 rounded-full bg-current" />{ticket.lifecycle.state.replaceAll("_", " ")}</Badge>}{sla && <Badge variant={sla.overdue ? "strong" : "outline"} shape="pill"><Timer className="size-3" />{sla.label}</Badge>}<UrgencyBadge urgency={ticket.urgency} /><DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="icon" aria-label="More case actions"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => navigator.clipboard?.writeText(`${window.location.origin}/app?case=${ticket.id}`)}>Copy case link</DropdownMenuItem>{ticket.lifecycle?.assigned_to && <DropdownMenuItem onSelect={() => onAssign(ticket.id, null, ticket.lifecycle.assigned_to)}>Release ownership</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu></div>
       </header>
 
       <div className="detail-content">
@@ -509,19 +516,28 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
   const [correction, setCorrection] = useState({ intent: "", urgency: "", route: "", reason: "" });
   const [noteDraft, setNoteDraft] = useState("");
   const [revealed, setRevealed] = useState(false);
+  const conversationViewportRef = useRef(null);
   useEffect(() => { setDraft(ticket.response || ""); setCorrection({ intent: "", urgency: "", route: "", reason: "" }); setNoteDraft(""); setRevealed(false); }, [ticket.id, ticket.response]);
-  const decision = automationDecision(ticket, automation, governance);
+  const decision = automationDecision(ticket);
   const delivery = ticket.channel === "email" ? governance.integrations?.email : governance.integrations?.whatsapp;
   const canSend = governance.integrations?.mode === "live" && delivery?.configured;
   const sla = slaState(ticket);
   const entities = Object.entries(ticket.entities || {}).filter(([, value]) => value);
   const labels = { amount: "Amount", transactionId: "Transaction ID", orderId: "Order ID", account: "Account", card: "Card" };
   const reveal = () => { setRevealed(true); onSensitiveReveal?.(ticket); };
+  const scrollConversationToLatest = () => window.requestAnimationFrame(() => {
+    const viewport = conversationViewportRef.current;
+    if (viewport) viewport.scrollTo({
+      top: viewport.scrollHeight,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+    });
+  });
+  useEffect(() => { if (!conversationLoading && conversation.length) scrollConversationToLatest(); }, [conversationLoading, conversation.length, ticket.id]);
   return (
     <article className="detail-scroll case-workspace" aria-labelledby="ticket-title">
       <header className="case-header">
         <div className="flex min-w-0 items-center gap-3"><Button variant="ghost" size="icon" className="case-back-button" onClick={onBack} aria-label="Back to queue"><ArrowLeft className="size-4" /></Button><div className="min-w-0"><p className="case-kicker">{ticket.id} · <span className="capitalize">{ticket.channel}</span></p><h2 id="ticket-title">{ticket.customer.name}</h2></div></div>
-        <div className="case-header-actions">{ticket.lifecycle?.assigned_to ? <Badge variant="outline"><UserRoundCheck className="size-3" />{ticket.lifecycle.assigned_to}</Badge> : <Button variant="outline" onClick={() => onAssign(ticket.id, "me", null)}><UserPlus className="size-4" />Claim case</Button>}{sla && <Badge variant={sla.overdue ? "strong" : "outline"}><Timer className="size-3" />{sla.label}</Badge>}<DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="More case actions"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => navigator.clipboard?.writeText(`${window.location.origin}/app?case=${ticket.id}`)}>Copy case link</DropdownMenuItem>{ticket.lifecycle?.assigned_to && <DropdownMenuItem onSelect={() => onAssign(ticket.id, null, ticket.lifecycle.assigned_to)}>Release ownership</DropdownMenuItem>}<DropdownMenuItem>Mark as duplicate</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
+        <div className="case-header-actions">{ticket.lifecycle?.assigned_to ? <Badge variant="outline"><UserRoundCheck className="size-3" />{ticket.lifecycle.assigned_to}</Badge> : <Button variant="outline" onClick={() => onAssign(ticket.id, "me", null)}><UserPlus className="size-4" />Claim case</Button>}{sla && <Badge variant={sla.overdue ? "strong" : "outline"}><Timer className="size-3" />{sla.label}</Badge>}<DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="More case actions"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => navigator.clipboard?.writeText(`${window.location.origin}/app?case=${ticket.id}`)}>Copy case link</DropdownMenuItem>{ticket.lifecycle?.assigned_to && <DropdownMenuItem onSelect={() => onAssign(ticket.id, null, ticket.lifecycle.assigned_to)}>Release ownership</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu></div>
       </header>
       <div className="case-body">
         <section className="customer-message-section" aria-labelledby="customer-message-title">
@@ -530,7 +546,7 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
           <blockquote>“{revealed ? ticket.message : maskSensitive(ticket.message)}”</blockquote>
           {!revealed && ticket.message !== maskSensitive(ticket.message) && <Button variant="ghost" onClick={reveal}><Eye className="size-4" />Reveal sensitive details</Button>}
           {entities.length > 0 && <div className="entity-list">{entities.map(([key, value]) => <EntityTag key={key} label={labels[key]} value={value} />)}</div>}
-          {(conversationLoading || conversation.length > 0) && <details className="case-disclosure"><summary><span><MessagesSquare />Conversation history</span><span>{conversation.length} messages <ChevronDown /></span></summary><div className="disclosure-content">{conversationLoading ? <Skeleton className="h-20 w-full" /> : conversation.map((message) => <div key={message.id} className={cn("conversation-message", message.direction === "outbound" && "conversation-message-outbound")}><span>{message.direction === "outbound" ? "Agent response" : "Customer"} · {message.delivery_status}</span><p>{message.body}</p></div>)}</div></details>}
+          {(conversationLoading || conversation.length > 0) && <details className="case-disclosure" onToggle={(event) => event.currentTarget.open && scrollConversationToLatest()}><summary><span><MessagesSquare />Conversation history</span><span>{conversation.length} messages <ChevronDown /></span></summary><ScrollArea className="conversation-scroll" viewportRef={conversationViewportRef}><div className="disclosure-content">{conversationLoading ? <Skeleton className="h-20 w-full" /> : conversation.map((message) => <div key={message.id} className={cn("conversation-message", message.direction === "outbound" && "conversation-message-outbound")}><span>{message.direction === "outbound" ? "Agent response" : "Customer"} · {message.delivery_status}</span><p>{message.body}</p></div>)}</div></ScrollArea></details>}
         </section>
         <div className="case-decision-grid">
           <section className="human-decision" aria-labelledby="agent-decision-title">
@@ -543,7 +559,7 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
               {!isProcessed(ticket) ? backend.configured ? <Button disabled><LoaderCircle className={cn("size-4", aiLoading && "animate-spin")} />{aiLoading ? "Classifying conversation" : "Classification required"}</Button> : <Button disabled={actionLoading || !correction.intent || !correction.urgency || !correction.route || draft.trim().length < 2} onClick={() => onManualAssessment(ticket, { ...correction, response: draft })}><UserRoundCheck className="size-4" />Save assessment</Button> : ["sent", "delivered", "replied"].includes(ticket.lifecycle?.state) ? <Button disabled={actionLoading} onClick={() => onResolve(ticket.id)}><CheckCircle2 className="size-4" />Mark resolved</Button> : <><Button disabled={actionLoading} onClick={() => onEscalate(ticket.id, draft)} variant="outline"><Users className="size-4" />Assign to specialist</Button><Button disabled={actionLoading || !draft.trim()} onClick={() => onApprove(ticket.id, draft)}>{actionLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}{canSend ? "Approve and send" : "Approve draft"}</Button></>}
               {!canSend && isProcessed(ticket) && <p>Approval is recorded in Kora. Nothing is sent until {ticket.channel === "email" ? "email" : "WhatsApp"} is connected.</p>}
             </div>
-            <details className="case-disclosure"><summary><span><MessageCircle />Internal notes</span><span>{notes.length} notes <ChevronDown /></span></summary><div className="disclosure-content notes-content">{notes.slice(0, 3).map((note) => <div key={note.id}><strong>{note.actor}</strong><time>{formatDate(note.created_at)}</time><p>{note.body}</p></div>)}<textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} rows={3} placeholder={`Add a private note. Use @${currentUser?.display_name?.split(" ")[0] || "teammate"} to mention someone.`} /><Button variant="outline" disabled={!noteDraft.trim() || actionLoading} onClick={() => { const mentions = [...noteDraft.matchAll(/@([A-Za-z][\w.-]*)/g)].map((match) => match[1]); onAddNote(ticket.id, noteDraft, mentions); setNoteDraft(""); }}>Add private note</Button></div></details>
+            <details className="case-disclosure"><summary><span><MessageCircle />Internal notes</span><span>{notes.length} notes <ChevronDown /></span></summary><div className="disclosure-content notes-content">{notes.slice(0, 3).map((note) => <div key={note.id}><strong>{note.actor}</strong><time>{formatDate(note.created_at)}</time><p>{note.body}</p></div>)}<textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} rows={3} placeholder={`Add a private note. Use @${currentUser?.display_name?.split(" ")[0] || "teammate"} to mention someone.`} /><Button variant="outline" disabled={!noteDraft.trim() || actionLoading} onClick={async () => { const mentions = [...noteDraft.matchAll(/@([A-Za-z][\w.-]*)/g)].map((match) => match[1]); if (await onAddNote(ticket.id, noteDraft, mentions)) setNoteDraft(""); }}>Add private note</Button></div></details>
           </section>
           <section className="suggestion-panel" aria-labelledby="suggestion-title">
             <div className="suggestion-heading"><div><h3 id="suggestion-title">Suggested classification</h3><p>Supporting information for the agent</p></div>{backend.configured && ticket.source !== "groq" && <Button onClick={() => onRunAI(ticket)} disabled={aiLoading} variant="ghost">{aiLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}Refresh</Button>}</div>
@@ -661,20 +677,20 @@ function SettingsView({ automation, onChange, onSave, saving, tickets, integrati
   const hasActivePolicies = policies.some((policy) => policy.active);
   const hasDelivery = integrations?.mode === "live" && (integrations?.email?.configured || integrations?.whatsapp?.configured);
   const governanceReady = hasActivePolicies && hasDelivery;
-  const autoCount = tickets.filter((ticket) => policyState(ticket, automation, { integrations }) === "auto").length;
-  const reviewCount = tickets.filter((ticket) => policyState(ticket, automation, { integrations }) === "mandatory").length;
+  const autoCount = tickets.filter((ticket) => policyState(ticket) === "auto").length;
+  const reviewCount = tickets.filter((ticket) => policyState(ticket) === "mandatory").length;
   const assignedCount = tickets.filter((ticket) => ticket.lifecycle?.assigned_to || ticket.assignee).length;
   return (
     <div className="view-padding max-w-5xl">
       <div className="page-heading"><p>Confidence is only one requirement. Policy, verification, guardrails, information completeness and delivery must also pass.</p></div>
       <div className="grid gap-5 lg:grid-cols-[1.2fr_.8fr]">
         <Card className="p-6">
-          <div className="flex items-start justify-between gap-5 border-b border-line pb-5"><div><div className="flex items-center gap-2"><Zap className="size-4" /><h3 className="text-[14px] font-semibold">Auto-approve eligible drafts</h3></div><p className="mt-2 max-w-lg text-[13px] leading-5 text-ink-muted">Eligible cases need an approved policy match, no guardrail, required verification, complete information, connected delivery and sufficient confidence.</p></div><button type="button" role="switch" aria-label="Enable auto-approval" aria-checked={automation.enabled} disabled={!governanceReady && !automation.enabled} onClick={() => onChange({ ...automation, enabled: !automation.enabled })} className={cn("safe-switch", automation.enabled && "safe-switch-on")}><span /></button></div>
+          <div className="flex items-start justify-between gap-5 border-b border-line pb-5"><div><div className="flex items-center gap-2"><Zap className="size-4" /><h3 className="text-[14px] font-semibold">Auto-approve eligible drafts</h3></div><p className="mt-2 max-w-lg text-[13px] leading-5 text-ink-muted">Eligible cases need an approved policy match, no guardrail, required verification, complete information, connected delivery and sufficient confidence.</p></div><Switch aria-label="Enable auto-approval" checked={automation.enabled} disabled={!governanceReady && !automation.enabled} onCheckedChange={(enabled) => onChange({ ...automation, enabled })} /></div>
           {!governanceReady && <div className="mt-4 rounded-[8px] bg-muted-surface p-4 text-[13px]"><strong>Auto-approval is unavailable</strong><p className="mt-1 text-ink-muted">{!hasActivePolicies ? "Add and activate an approved policy. " : ""}{!hasDelivery ? "Connect email or WhatsApp for live delivery." : ""}</p></div>}
-          <label className="mt-6 block"><span className="flex items-center justify-between"><span className="text-[10px] font-extrabold">Auto-approve threshold</span><strong className="text-[20px] tracking-[-0.04em]">{automation.auto_approve_threshold}%</strong></span><input type="range" min="80" max="99" value={automation.auto_approve_threshold} onChange={(event) => onChange({ ...automation, auto_approve_threshold: Number(event.target.value) })} className="mt-4 w-full accent-[var(--color-ink)]" /><span className="mt-2 flex justify-between text-[8px] font-bold text-ink-faint"><span>80%</span><span>99%</span></span></label>
-          <label className="mt-7 block border-t border-line pt-6"><span className="flex items-center justify-between"><span className="text-[10px] font-extrabold">Mandatory review below</span><strong className="text-[20px] tracking-[-0.04em]">{automation.mandatory_review_threshold}%</strong></span><input type="range" min="50" max="90" value={automation.mandatory_review_threshold} onChange={(event) => onChange({ ...automation, mandatory_review_threshold: Number(event.target.value) })} className="mt-4 w-full accent-[var(--color-ink)]" /><span className="mt-2 flex justify-between text-[8px] font-bold text-ink-faint"><span>50%</span><span>90%</span></span></label>
+          <label className="automation-range mt-6 block"><span className="flex items-center justify-between gap-4"><span>Auto-approve threshold</span><strong>{automation.auto_approve_threshold}%</strong></span><input type="range" min="80" max="99" value={automation.auto_approve_threshold} onChange={(event) => onChange({ ...automation, auto_approve_threshold: Number(event.target.value) })} /><span className="range-bounds"><span>80%</span><span>99%</span></span></label>
+          <label className="automation-range mt-7 block border-t border-line pt-6"><span className="flex items-center justify-between gap-4"><span>Mandatory review below</span><strong>{automation.mandatory_review_threshold}%</strong></span><input type="range" min="50" max="90" value={automation.mandatory_review_threshold} onChange={(event) => onChange({ ...automation, mandatory_review_threshold: Number(event.target.value) })} /><span className="range-bounds"><span>50%</span><span>90%</span></span></label>
           {automation.mandatory_review_threshold >= automation.auto_approve_threshold && <p className="mt-4 flex items-center gap-2 text-[10px] font-bold"><CircleAlert className="size-4" />The lower threshold must remain below auto-approve.</p>}
-          {confirmSave ? <div className="mt-5 border-y border-line py-4 text-[13px]"><strong>Policy impact before save</strong><p className="mt-1 text-ink-muted">{autoCount} conversations would be eligible and {reviewCount} would require review. Fraud, security and financial-action cases remain blocked.</p><div className="mt-3 flex gap-2"><Button onClick={() => { onSave(); setConfirmSave(false); }} disabled={saving}><Save className="size-4" />Confirm and save</Button><Button variant="ghost" onClick={() => setConfirmSave(false)}>Cancel</Button></div></div> : <Button onClick={() => setConfirmSave(true)} disabled={saving || automation.mandatory_review_threshold >= automation.auto_approve_threshold || (automation.enabled && !governanceReady)} className="mt-7"><Save className="size-4" />Review changes</Button>}
+          {confirmSave ? <div className="mt-5 border-y border-line py-4 text-[13px]"><strong>Recorded queue impact</strong><p className="mt-1 text-ink-muted">{autoCount} conversations are recorded as eligible and {reviewCount} require review. New settings apply when a case is next triaged.</p><div className="mt-3 flex gap-2"><Button onClick={() => { onSave(); setConfirmSave(false); }} disabled={saving}><Save className="size-4" />Confirm and save</Button><Button variant="ghost" onClick={() => setConfirmSave(false)}>Cancel</Button></div></div> : <Button onClick={() => setConfirmSave(true)} disabled={saving || automation.mandatory_review_threshold >= automation.auto_approve_threshold || (automation.enabled && !governanceReady)} className="mt-7"><Save className="size-4" />Review changes</Button>}
         </Card>
       <div className="automation-impact p-6"><h3 className="text-[15px] font-semibold">Current queue impact</h3><div className="mt-5 divide-y divide-line">{[["Eligible for auto-approval", autoCount, "All safety conditions pass"], ["Assigned conversations", assignedCount, `Primary owner recorded out of ${tickets.length}`], ["Human review required", reviewCount, "A governance or risk condition blocks automation"]].map(([label, count, meta]) => <div key={label} className="flex items-center justify-between py-4"><span><strong className="block text-[13px]">{label}</strong><small className="mt-1 block text-[12px] text-ink-faint">{meta}</small></span><strong className="text-[22px] font-semibold">{count}</strong></div>)}</div></div>
       </div>
@@ -689,12 +705,12 @@ function SettingsView({ automation, onChange, onSave, saving, tickets, integrati
         <div className="border-b border-line p-6"><h3 className="text-[16px] font-semibold tracking-[-0.02em]">Approved response policies</h3><p className="mt-2 max-w-2xl text-[13px] leading-5 text-ink-muted">Kora retrieves matching policy text before drafting and records every cited version in the case audit.</p></div>
         <div className="grid lg:grid-cols-[1fr_1fr]">
           <div className="border-b border-line p-6 lg:border-b-0 lg:border-r">
-            <div className="grid gap-3 sm:grid-cols-[1fr_110px]"><label className="grid gap-2 text-[9px] font-bold">Policy title<input value={policyDraft.title} onChange={(event) => setPolicyDraft({ ...policyDraft, title: event.target.value })} placeholder="Transfer reversal timeline" className="h-10 rounded-[7px] border border-line-strong px-3 text-[10px] outline-none focus:ring-2 focus:ring-ring" /></label><label className="grid gap-2 text-[9px] font-bold">Version<input value={policyDraft.version} onChange={(event) => setPolicyDraft({ ...policyDraft, version: event.target.value })} className="h-10 rounded-[7px] border border-line-strong px-3 text-[10px] outline-none focus:ring-2 focus:ring-ring" /></label></div>
-            <label className="mt-3 grid gap-2 text-[9px] font-bold">Source URL (optional)<input value={policyDraft.source_url} onChange={(event) => setPolicyDraft({ ...policyDraft, source_url: event.target.value })} placeholder="https://company.example/policy" className="h-10 rounded-[7px] border border-line-strong px-3 text-[10px] outline-none focus:ring-2 focus:ring-ring" /></label>
-            <label className="mt-3 grid gap-2 text-[9px] font-bold">Approved content<textarea value={policyDraft.content} onChange={(event) => setPolicyDraft({ ...policyDraft, content: event.target.value })} rows={7} placeholder="Paste the exact approved policy, required information, timeline and escalation path." className="resize-y rounded-[7px] border border-line-strong p-3 text-[10px] leading-5 outline-none focus:ring-2 focus:ring-ring" /></label>
+            <div className="grid gap-4 sm:grid-cols-[1fr_140px]"><label className="automation-field">Policy title<Input value={policyDraft.title} onChange={(event) => setPolicyDraft({ ...policyDraft, title: event.target.value })} placeholder="Transfer reversal timeline" /></label><label className="automation-field">Version<Input value={policyDraft.version} onChange={(event) => setPolicyDraft({ ...policyDraft, version: event.target.value })} /></label></div>
+            <label className="automation-field mt-4">Source URL (optional)<Input type="url" value={policyDraft.source_url} onChange={(event) => setPolicyDraft({ ...policyDraft, source_url: event.target.value })} placeholder="https://company.example/policy" /></label>
+            <label className="automation-field mt-4">Approved content<textarea value={policyDraft.content} onChange={(event) => setPolicyDraft({ ...policyDraft, content: event.target.value })} rows={7} placeholder="Paste the exact approved policy, required information, timeline and escalation path." /></label>
             <Button className="mt-3" disabled={policySaving || policyDraft.title.length < 3 || policyDraft.content.length < 20} onClick={async () => { const saved = await onCreatePolicy({ ...policyDraft, source_url: policyDraft.source_url || null }); if (saved) setPolicyDraft({ title: "", version: "1.0", source_url: "", content: "" }); }}><BookOpenCheck className="size-4" />{policySaving ? "Saving policy" : "Approve policy"}</Button>
           </div>
-          <div className="divide-y divide-line">{policies.length ? policies.map((policy) => <div key={policy.id} className="flex items-start justify-between gap-5 p-5"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-[13px]">{policy.title}</strong><Badge variant={policy.active ? "accent" : "neutral"} shape="pill">v{policy.version}</Badge></div><p className="mt-2 line-clamp-2 text-[12px] leading-5 text-ink-muted">{policy.content}</p></div><button type="button" role="switch" aria-label={`${policy.active ? "Deactivate" : "Activate"} ${policy.title}`} aria-checked={Boolean(policy.active)} onClick={() => onTogglePolicy(policy.id, !policy.active)} className={cn("relative h-11 w-11 shrink-0 rounded-full border transition-colors focus-visible:ring-2 focus-visible:ring-ring", policy.active ? "border-ink bg-ink" : "border-line-strong bg-muted-surface")}><span className={cn("absolute left-2 top-[13px] size-4 rounded-full bg-paper transition-transform", policy.active ? "translate-x-3" : "translate-x-0")} /></button></div>) : <div className="p-6"><BookOpenCheck className="size-5 text-ink-faint" /><strong className="mt-3 block text-[13px]">No approved policies</strong><p className="mt-1 max-w-md text-[12px] leading-5 text-ink-muted">Drafts remain human-reviewed until the first company policy is added.</p></div>}</div>
+          <div className="divide-y divide-line">{policies.length ? policies.map((policy) => <div key={policy.id} className="flex items-start justify-between gap-5 p-5"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-[13px]">{policy.title}</strong><Badge variant={policy.active ? "accent" : "neutral"} shape="pill">v{policy.version}</Badge></div><p className="mt-2 line-clamp-2 text-[12px] leading-5 text-ink-muted">{policy.content}</p></div><Switch aria-label={`${policy.active ? "Deactivate" : "Activate"} ${policy.title}`} checked={Boolean(policy.active)} onCheckedChange={(active) => onTogglePolicy(policy.id, active)} /></div>) : <div className="p-6"><BookOpenCheck className="size-5 text-ink-faint" /><strong className="mt-3 block text-[13px]">No approved policies</strong><p className="mt-1 max-w-md text-[12px] leading-5 text-ink-muted">Drafts remain human-reviewed until the first company policy is added.</p></div>}</div>
         </div>
       </div>
     </div>
@@ -755,8 +771,6 @@ const auditLabels = {
   proof_run_completed: "Historical evaluation completed",
   sensitive_data_revealed: "Sensitive data revealed"
 };
-const auditValueLabels = { assigned_to_specialist: "Assigned to specialist", routed: "Routed by agent", approved: "Approved by agent", auto_approved: "Auto-approved" };
-
 function DecisionAuditView({ items, loading }) {
   const [search, setSearch] = useState("");
   const [eventType, setEventType] = useState("all");
@@ -770,7 +784,32 @@ function DecisionAuditView({ items, loading }) {
   const exportCsv = () => { const rows = [["time", "case", "customer", "event", "actor", "decision"], ...filtered.map((item) => [item.created_at, item.case_id, item.customer_id, auditLabels[item.event_type] || item.event_type, item.actor || "System", item.decision.intent || item.decision.status || "Recorded action"])]; const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "kora-filtered-audit.csv"; link.click(); URL.revokeObjectURL(link.href); };
   const events = [...new Set(items.map((item) => item.event_type))];
   const actors = [...new Set(items.map(displayActor))];
-  return <div className="view-padding"><div className="page-heading page-heading-row"><div><h2>Decision audit</h2><p>Search and inspect automated decisions, agent actions and governance changes.</p></div><Button variant="outline" onClick={exportCsv} disabled={!filtered.length}><Download />Export filtered results</Button></div><div className="audit-filters"><label><Search /><span className="sr-only">Search audit trail</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search case, customer or actor" /></label><input type="date" aria-label="Start date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /><Select value={eventType} onValueChange={setEventType}><SelectTrigger aria-label="Event type"><SelectValue placeholder="Event type" /></SelectTrigger><SelectContent><SelectItem value="all">All event types</SelectItem>{events.map((value) => <SelectItem key={value} value={value}>{auditLabels[value] || value.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select><Select value={actor} onValueChange={setActor}><SelectTrigger aria-label="Actor"><SelectValue placeholder="Actor" /></SelectTrigger><SelectContent><SelectItem value="all">All actors</SelectItem>{actors.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><div className="table-surface audit-table">{loading ? <div className="space-y-3 p-5"><Skeleton className="h-12 w-full" /><Skeleton className="h-16 w-full" /></div> : filtered.length ? <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Case</TableHead><TableHead>Event</TableHead><TableHead>Decision</TableHead><TableHead>Actor</TableHead><TableHead><span className="sr-only">Details</span></TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => { const summary = item.decision.intent || item.decision.status || "Recorded action"; return <TableRow key={item.id}><TableCell><time>{formatDate(item.created_at)}</time></TableCell><TableCell><strong>{item.case_id}</strong></TableCell><TableCell>{auditLabels[item.event_type] || item.event_type.replaceAll("_", " ")}</TableCell><TableCell>{summary}</TableCell><TableCell>{item.actor || "System"}</TableCell><TableCell><details className="audit-expansion"><summary>View reasoning</summary><div><p><strong>Reason:</strong> {item.guardrails.reason || item.decision.evidence?.join("; ") || "Agent decision"}</p><p><strong>Customer:</strong> {item.customer_id}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></TableCell></TableRow>; })}</TableBody></Table> : <p className="compact-empty">No audit events match these filters.</p>}</div></div>;
+  const hasFilters = Boolean(search || dateFrom || eventType !== "all" || actor !== "all");
+  const clearFilters = () => { setSearch(""); setDateFrom(""); setEventType("all"); setActor("all"); };
+  const eventName = (item) => auditLabels[item.event_type] || item.event_type.replaceAll("_", " ");
+  const decisionSummary = (item) => item.decision.intent || item.decision.status || "Recorded action";
+  const reason = (item) => item.guardrails.reason || item.decision.evidence?.join("; ") || "Agent decision";
+  return (
+    <div className="view-padding">
+      <div className="page-heading page-heading-row">
+        <div><h2>Decision audit</h2><p>Search and inspect automated decisions, agent actions and governance changes.</p></div>
+        <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}><Download className="size-4" />Export results</Button>
+      </div>
+      <section className="audit-filter-panel" aria-label="Audit filters">
+        <div className="audit-filters">
+          <div className="audit-search"><Search className="size-4" /><span className="sr-only">Search audit trail</span><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search case, customer or actor" /></div>
+          <Suspense fallback={<Skeleton className="h-11 w-full" />}><AuditDatePicker value={dateFrom} onChange={setDateFrom} /></Suspense>
+          <Select value={eventType} onValueChange={setEventType}><SelectTrigger aria-label="Event type"><SelectValue placeholder="Event type" /></SelectTrigger><SelectContent><SelectItem value="all">All event types</SelectItem>{events.map((value) => <SelectItem key={value} value={value}>{auditLabels[value] || value.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select>
+          <Select value={actor} onValueChange={setActor}><SelectTrigger aria-label="Actor"><SelectValue placeholder="Actor" /></SelectTrigger><SelectContent><SelectItem value="all">All actors</SelectItem>{actors.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>
+        </div>
+        <div className="audit-filter-summary"><p><strong>{filtered.length}</strong> of {items.length} events shown</p>{hasFilters && <Button variant="ghost" size="sm" onClick={clearFilters}><X className="size-4" />Clear filters</Button>}</div>
+      </section>
+      {loading ? <div className="table-surface space-y-3 p-5"><Skeleton className="h-12 w-full" /><Skeleton className="h-16 w-full" /></div> : filtered.length ? <>
+        <div className="table-surface audit-table audit-table-desktop"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Case</TableHead><TableHead>Event</TableHead><TableHead>Decision</TableHead><TableHead>Actor</TableHead><TableHead><span className="sr-only">Details</span></TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => <TableRow key={item.id}><TableCell><time>{formatDate(item.created_at)}</time></TableCell><TableCell><strong>{item.case_id}</strong><small className="mt-1 block">{item.customer_id}</small></TableCell><TableCell>{eventName(item)}</TableCell><TableCell><strong>{decisionSummary(item)}</strong></TableCell><TableCell>{displayActor(item)}</TableCell><TableCell><details className="audit-expansion"><summary>View reasoning</summary><div><p><strong>Reason:</strong> {reason(item)}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></TableCell></TableRow>)}</TableBody></Table></div>
+        <div className="audit-mobile-list">{filtered.map((item) => <article key={item.id} className="audit-mobile-record"><div className="audit-record-heading"><div><span>{eventName(item)}</span><strong>{decisionSummary(item)}</strong></div><time>{formatDate(item.created_at)}</time></div><dl><div><dt>Case</dt><dd>{item.case_id}</dd></div><div><dt>Actor</dt><dd>{displayActor(item)}</dd></div></dl><details className="audit-expansion"><summary>View decision reasoning <ChevronDown className="size-4" /></summary><div><p><strong>Reason:</strong> {reason(item)}</p><p><strong>Customer:</strong> {item.customer_id}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></article>)}</div>
+      </> : <p className="compact-empty">No audit events match these filters. Clear one or more filters to broaden the result.</p>}
+    </div>
+  );
 }
 
 function DashboardApp() {
@@ -809,6 +848,10 @@ function DashboardApp() {
   const [mobileCaseOpen, setMobileCaseOpen] = useState(false);
   const queueScrollRef = useRef(null);
   const queueScrollPosition = useRef(0);
+  const memoryRequestId = useRef(0);
+  const conversationRequestId = useRef(0);
+  const linkedCaseId = useRef(new URLSearchParams(window.location.search).get("case"));
+  const linkedCaseHandled = useRef(false);
   const activeFilters = { review: false, high: false, sla: false, unassigned: false, assignee: "all", channel: "all", urgency: "all", team: "all", ...filters };
   const governance = { integrations, policies };
 
@@ -825,30 +868,37 @@ function DashboardApp() {
   };
 
   const refreshMemory = async (customerId) => {
+    const requestId = ++memoryRequestId.current;
     setMemoryLoading(true);
     try {
       const result = await getCustomerMemory(customerId);
-      setMemoryItems(result.items || []);
+      if (requestId === memoryRequestId.current) setMemoryItems(result.items || []);
     } catch (error) {
-      setMemoryItems([]);
-      setToast(error.message || "Could not load customer memory");
+      if (requestId === memoryRequestId.current) {
+        setMemoryItems([]);
+        setToast(error.message || "Could not load customer memory");
+      }
     } finally {
-      setMemoryLoading(false);
+      if (requestId === memoryRequestId.current) setMemoryLoading(false);
     }
   };
 
   const refreshConversation = async (caseId) => {
+    const requestId = ++conversationRequestId.current;
     setConversationLoading(true);
     try {
       const result = await getCaseConversation(caseId);
+      if (requestId !== conversationRequestId.current) return;
       setConversation(result.messages || []);
       setCaseNotes(result.notes || []);
       setTickets((items) => items.map((ticket) => ticket.id === caseId ? { ...ticket, lifecycle: result.lifecycle || ticket.lifecycle } : ticket));
     } catch {
-      setConversation([]);
-      setCaseNotes([]);
+      if (requestId === conversationRequestId.current) {
+        setConversation([]);
+        setCaseNotes([]);
+      }
     } finally {
-      setConversationLoading(false);
+      if (requestId === conversationRequestId.current) setConversationLoading(false);
     }
   };
 
@@ -886,11 +936,15 @@ function DashboardApp() {
   useEffect(() => {
     if (activeView === "audit" && backend.state === "online") refreshAudit();
   }, [activeView, backend.state]);
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+    document.getElementById("main-content")?.scrollTo({ top: 0, behavior: "auto" });
+  }, [activeView]);
 
   const visibleTickets = useMemo(() => tickets.filter((ticket) => {
     const text = `${ticket.id} ${ticket.customer.name} ${ticket.message} ${ticket.intent}`.toLowerCase();
     return (!query || text.includes(query.toLowerCase()))
-      && (!activeFilters.review || policyState(ticket, automation, governance) === "mandatory")
+      && (!activeFilters.review || policyState(ticket) === "mandatory")
       && (!activeFilters.high || ["critical", "high"].includes(ticket.urgency))
       && (!activeFilters.sla || Boolean(slaState(ticket)))
       && (!activeFilters.unassigned || (!ticket.lifecycle?.assigned_to && !ticket.assignee && ticket.status !== "Assigned"))
@@ -901,13 +955,30 @@ function DashboardApp() {
   }).sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency] || b.minutesAgo - a.minutesAgo), [tickets, query, activeFilters.review, activeFilters.high, activeFilters.sla, activeFilters.unassigned, activeFilters.assignee, activeFilters.channel, activeFilters.urgency, activeFilters.team, automation, integrations, policies]);
 
   useEffect(() => { if (visibleTickets.length && !visibleTickets.some((ticket) => ticket.id === selectedId)) setSelectedId(visibleTickets[0].id); }, [visibleTickets, selectedId]);
-  const selectedTicket = tickets.find((ticket) => ticket.id === selectedId) || tickets[0];
   useEffect(() => {
-    if (backend.state === "online") {
+    if (linkedCaseHandled.current || loading) return;
+    const linkedTicket = tickets.find((ticket) => ticket.id === linkedCaseId.current);
+    if (linkedTicket) {
+      setSelectedId(linkedTicket.id);
+      setMobileCaseOpen(true);
+    }
+    linkedCaseHandled.current = true;
+  }, [loading, tickets]);
+  const selectedTicket = tickets.find((ticket) => ticket.id === selectedId) || tickets[0] || null;
+  useEffect(() => {
+    if (backend.state === "online" && selectedTicket) {
       refreshMemory(selectedTicket.customerId);
       refreshConversation(selectedTicket.id);
+    } else if (!selectedTicket) {
+      memoryRequestId.current += 1;
+      conversationRequestId.current += 1;
+      setMemoryItems([]);
+      setConversation([]);
+      setCaseNotes([]);
+      setMemoryLoading(false);
+      setConversationLoading(false);
     }
-  }, [backend.state, selectedTicket.customerId, selectedTicket.id]);
+  }, [backend.state, selectedTicket?.customerId, selectedTicket?.id]);
   const updateStatus = (id, status, escalated) => setTickets((items) => items.map((ticket) => ticket.id === id ? { ...ticket, status, escalated: escalated ?? ticket.escalated } : ticket));
   const runLiveAI = async (ticket) => {
     setAiLoadingId(ticket.id);
@@ -932,7 +1003,8 @@ function DashboardApp() {
         auditId: result.audit_id,
         processingMs: result.processing_ms,
         estimatedMinutesSaved: result.estimated_minutes_saved,
-        policyCitations: result.policy_citations || []
+        policyCitations: result.policy_citations || [],
+        automation: result.automation
       };
       const shouldAutoApprove = result.status === "Auto-approved";
       setTickets((items) => items.map((item) => item.id === ticket.id ? { ...updatedTicket, customer: item.customer } : item));
@@ -1030,35 +1102,42 @@ function DashboardApp() {
   const toggleSelected = (id) => setSelectedIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
   const selectAll = (ids, checked) => setSelectedIds((current) => checked ? [...new Set([...current, ...ids])] : current.filter((id) => !ids.includes(id)));
   const bulkApprove = async () => {
-    const eligible = tickets.filter((ticket) => selectedIds.includes(ticket.id) && lowRisk(ticket, automation, governance));
+    const eligible = tickets.filter((ticket) => selectedIds.includes(ticket.id) && lowRisk(ticket));
     if (!eligible.length) return;
     setBulkLoading(true);
     try {
-      await Promise.all(eligible.map((ticket) => recordCaseAction(ticket, "approve", ticket.response)));
-      const approvedIds = new Set(eligible.map((ticket) => ticket.id));
-      setTickets((items) => items.map((ticket) => approvedIds.has(ticket.id) ? { ...ticket, status: "Approved" } : ticket));
+      const results = await Promise.allSettled(eligible.map((ticket) => recordCaseAction(ticket, "approve", ticket.response, null, { requireAutomationEligible: true })));
+      const approvedResults = new Map(eligible.flatMap((ticket, index) => results[index].status === "fulfilled" ? [[ticket.id, results[index].value]] : []));
+      const approvedIds = new Set(approvedResults.keys());
+      const failedCount = eligible.length - approvedIds.size;
+      setTickets((items) => items.map((ticket) => {
+        const result = approvedResults.get(ticket.id);
+        if (!result) return ticket;
+        return {
+          ...ticket,
+          status: result.status === "queued" ? "Queued to send" : "Approved",
+          lifecycle: result.status === "queued" ? { ...(ticket.lifecycle || {}), state: "queued" } : ticket.lifecycle
+        };
+      }));
       setSelectedIds((ids) => ids.filter((id) => !approvedIds.has(id)));
       refreshAudit();
-      setToast(`${eligible.length} low-risk ${eligible.length === 1 ? "case" : "cases"} approved`);
-    } catch (error) {
-      setToast(error.message || "Bulk approval failed");
+      setToast(failedCount ? `${approvedIds.size} approved; ${failedCount} failed and remain selected` : `${approvedIds.size} low-risk ${approvedIds.size === 1 ? "case" : "cases"} approved`);
     } finally {
       setBulkLoading(false);
     }
   };
   const bulkRoute = async (team) => {
-    const selected = tickets.filter((ticket) => selectedIds.includes(ticket.id) && lowRisk(ticket, automation, governance));
+    const selected = tickets.filter((ticket) => selectedIds.includes(ticket.id) && lowRisk(ticket));
     if (!selected.length) return;
     setBulkLoading(true);
     try {
-      await Promise.all(selected.map((ticket) => recordCaseRoute(ticket, team)));
-      const routedIds = new Set(selected.map((ticket) => ticket.id));
+      const results = await Promise.allSettled(selected.map((ticket) => recordCaseRoute(ticket, team)));
+      const routedIds = new Set(selected.filter((_, index) => results[index].status === "fulfilled").map((ticket) => ticket.id));
+      const failedCount = selected.length - routedIds.size;
       setTickets((items) => items.map((ticket) => routedIds.has(ticket.id) ? { ...ticket, route: team, status: `Routed to ${team}` } : ticket));
-      setSelectedIds([]);
+      setSelectedIds((ids) => ids.filter((id) => !routedIds.has(id)));
       refreshAudit();
-      setToast(`${selected.length} ${selected.length === 1 ? "case" : "cases"} routed to ${team}`);
-    } catch (error) {
-      setToast(error.message || "Bulk routing failed");
+      setToast(failedCount ? `${routedIds.size} routed; ${failedCount} failed and remain selected` : `${routedIds.size} ${routedIds.size === 1 ? "case" : "cases"} routed to ${team}`);
     } finally {
       setBulkLoading(false);
     }
@@ -1098,8 +1177,10 @@ function DashboardApp() {
       setCaseNotes((items) => [note, ...items]);
       refreshAudit();
       setToast(mentions.length ? `Private note added with ${mentions.length} mention` : "Private note added");
+      return true;
     } catch (error) {
       setToast(error.message || "Could not add the private note");
+      return false;
     } finally {
       setActionLoadingId(null);
     }
@@ -1179,6 +1260,7 @@ function DashboardApp() {
     queueScrollPosition.current = queueScrollRef.current?.scrollTop || 0;
     setSelectedId(id);
     setMobileCaseOpen(true);
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
   };
 
   const returnToQueue = () => {
@@ -1215,6 +1297,7 @@ function DashboardApp() {
     setActiveView("queue");
     setSelectedId(id);
     setMobileCaseOpen(true);
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
   };
 
   if (!signedIn) return <SignedOutView onReturn={() => setSignedIn(true)} />;
@@ -1227,7 +1310,7 @@ function DashboardApp() {
         <Header activeView={activeView} onMenu={() => setRailOpen(true)} backend={backend} tickets={tickets} onOpenTicket={openTicketFromNotification} onView={setActiveView} user={currentUser} onLogout={() => { window.localStorage.removeItem("kora_token"); setSignedIn(false); }} />
         {backend.alert && <div className="system-alert"><WifiOff />AI service unavailable. Agents can continue with manual classification and review.</div>}
         <main id="main-content" tabIndex={-1} className={cn("workspace-main", activeView === "queue" ? "workspace-main-queue" : "workspace-main-scroll")}>
-          {activeView === "queue" && <div className={cn("queue-view", mobileCaseOpen && "mobile-case-open")}><MetricsStrip tickets={tickets} automation={automation} governance={governance} onFilter={filterQueueByPriority} /><div className="workspace-grid"><QueuePane tickets={visibleTickets} selectedId={selectedId} onSelect={selectTicket} loading={loading} query={query} onQuery={setQuery} filters={activeFilters} onFilters={setFilters} selectedIds={selectedIds} onToggle={toggleSelected} onSelectAll={selectAll} onBulkApprove={bulkApprove} onBulkRoute={bulkRoute} bulkLoading={bulkLoading} automation={automation} governance={governance} scrollRef={queueScrollRef} /><CaseDetail ticket={selectedTicket} onApprove={approve} onEscalate={escalate} onRunAI={runLiveAI} onFeedback={saveFeedback} onResolve={resolve} onAssign={assignCase} onAddNote={saveCaseNote} onVerifyTransaction={verifyTransaction} onManualAssessment={saveHumanAssessment} onBack={returnToQueue} onSensitiveReveal={auditSensitiveReveal} aiLoading={aiLoadingId === selectedTicket.id} actionLoading={actionLoadingId === selectedTicket.id} backend={backend} automation={automation} governance={governance} memoryItems={memoryItems} memoryLoading={memoryLoading} conversation={conversation} notes={caseNotes} conversationLoading={conversationLoading} currentUser={currentUser} /></div></div>}
+          {activeView === "queue" && <div className={cn("queue-view", mobileCaseOpen && "mobile-case-open")}><MetricsStrip tickets={tickets} automation={automation} governance={governance} onFilter={filterQueueByPriority} /><div className="workspace-grid"><QueuePane tickets={visibleTickets} selectedId={selectedId} onSelect={selectTicket} loading={loading} query={query} onQuery={setQuery} filters={activeFilters} onFilters={setFilters} selectedIds={selectedIds} onToggle={toggleSelected} onSelectAll={selectAll} onBulkApprove={bulkApprove} onBulkRoute={bulkRoute} bulkLoading={bulkLoading} automation={automation} governance={governance} scrollRef={queueScrollRef} />{selectedTicket ? <CaseDetail ticket={selectedTicket} onApprove={approve} onEscalate={escalate} onRunAI={runLiveAI} onFeedback={saveFeedback} onResolve={resolve} onAssign={assignCase} onAddNote={saveCaseNote} onVerifyTransaction={verifyTransaction} onManualAssessment={saveHumanAssessment} onBack={returnToQueue} onSensitiveReveal={auditSensitiveReveal} aiLoading={aiLoadingId === selectedTicket.id} actionLoading={actionLoadingId === selectedTicket.id} backend={backend} automation={automation} governance={governance} memoryItems={memoryItems} memoryLoading={memoryLoading} conversation={conversation} notes={caseNotes} conversationLoading={conversationLoading} currentUser={currentUser} /> : <EmptyCaseDetail />}</div></div>}
           {activeView === "insights" && <Suspense fallback={<div className="view-padding"><Skeleton className="h-[420px] w-full" /></div>}><InsightsView tickets={tickets} evaluationSummary={evaluationSummary} /></Suspense>}
           {activeView === "proof" && <HistoricalEvaluationView runs={proofRuns} onRun={runProof} running={proofRunning} backend={backend} />}
           {activeView === "audit" && <DecisionAuditView items={auditItems} loading={auditLoading} />}
@@ -1236,7 +1319,7 @@ function DashboardApp() {
         </main>
       </div>
       {railOpen && <button className="fixed inset-0 z-30 bg-ink/20 lg:hidden" onClick={() => setRailOpen(false)} aria-label="Close navigation overlay" />}
-      <div role="status" aria-live="polite" className={cn("fixed bottom-5 right-5 z-50 flex items-center gap-2 border border-ink bg-ink px-4 py-3 text-[11px] font-bold text-paper shadow-precision transition-all", toast ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")}><CheckCircle2 className="size-4 text-accent" />{toast}</div>
+      <div role="status" aria-live="polite" className={cn("fixed bottom-5 right-3 z-50 flex max-w-[calc(100vw-24px)] items-center gap-2 border border-ink bg-ink px-4 py-3 text-[13px] font-bold text-paper shadow-precision transition-all sm:right-5", toast ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")}><CheckCircle2 className="size-4 shrink-0 text-accent" />{toast}</div>
     </div>
   );
 }
