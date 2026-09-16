@@ -2,13 +2,13 @@ import { cva } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex h-6 items-center gap-1.5 whitespace-nowrap border px-2.5 text-[10px] font-bold tracking-[-0.01em]",
+  "inline-flex h-7 items-center gap-1.5 whitespace-nowrap border px-2.5 text-xs font-bold tracking-[-0.01em]",
   {
     variants: {
       variant: {
         neutral: "border-line bg-muted-surface text-ink-muted",
-        accent: "border-accent bg-accent text-accent-ink",
-        strong: "border-ink bg-ink text-paper",
+        accent: "border-transparent bg-blue text-berry",
+        strong: "border-berry bg-berry text-paper",
         outline: "border-line-strong bg-paper text-ink"
       },
       shape: { pill: "rounded-full", square: "rounded-[3px]" }

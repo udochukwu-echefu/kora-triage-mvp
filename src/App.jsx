@@ -2,9 +2,9 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, BarChart3, Bell, BellRing, Bot, Check, CheckCheck,
   BookOpenCheck, CheckCircle2, ChevronDown, CircleAlert, CircleUserRound, ClipboardCheck,
-  Clock3, CreditCard, Database, Download, Filter, Inbox, LoaderCircle, LogOut, Mail, Menu,
-  GitFork, MessageCircle, MessagesSquare, MoreHorizontal, Route,
-  Eye, Save, Search, Send, Settings, ShieldAlert, ShieldCheck, Sparkles, Square, SquareCheckBig, Timer,
+  ChevronRight, Clock3, CreditCard, Database, Download, Filter, Inbox, LoaderCircle, LogOut, Mail, Menu,
+  GitFork, MessageCircle, MessagesSquare, Moon, MoreHorizontal, Route,
+  Eye, Save, Search, Send, Settings, ShieldAlert, ShieldCheck, Sparkles, Square, SquareCheckBig, Sun, Timer,
   UserPlus, UserRoundCheck, Users, WifiOff, Wrench, X, Zap
 } from "lucide-react";
 import { customers, messages } from "./data";
@@ -23,6 +23,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Input } from "./components/ui/input";
 import { ScrollArea } from "./components/ui/scroll-area";
 import { Switch } from "./components/ui/switch";
+import InsightsView from "./components/InsightsView";
+import LandingPage from "./components/LandingPage";
 import {
   addCaseNote, createPolicy, createProofRun, getAutomationSettings, getBackendAudit,
   getBackendHealth, getCases, getCustomerMemory, getCaseConversation, getCurrentUser,
@@ -31,7 +33,6 @@ import {
   saveManualAssessment, setPolicyState, updateAutomationSettings, updateCaseAssignment,
   verifyPaystackTransaction
 } from "./api";
-const InsightsView = lazy(() => import("./components/InsightsView"));
 const AuditDatePicker = lazy(() => import("./components/AuditDatePicker"));
 
 const seedTickets = messages.map((message) => ({
@@ -131,8 +132,8 @@ function formatRelative(minutes) {
 function UrgencyBadge({ urgency }) {
   const variants = { critical: "strong", high: "accent", medium: "outline", low: "neutral" };
   return (
-    <Badge variant={variants[urgency] || "neutral"} shape={urgency === "critical" ? "square" : "pill"}>
-      <span className={cn("size-1.5", urgency === "critical" ? "rotate-45 bg-accent" : "rounded-full bg-current")} />
+    <Badge className={`urgency-${urgency}`} variant={variants[urgency] || "neutral"} shape={urgency === "critical" ? "square" : "pill"}>
+      <span className={cn("size-1.5", urgency === "critical" ? "rotate-45 bg-current" : "rounded-full bg-current")} />
       {urgency}
     </Badge>
   );
@@ -143,29 +144,30 @@ function Rail({ activeView, onView, open, onClose, user }) {
   const role = (user?.role || "support_manager").replaceAll("_", " ");
   const initials = displayName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   return (
-    <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-[232px] flex-col border-r border-white/10 bg-shell px-3 py-4 text-paper transition-transform lg:translate-x-0", open ? "translate-x-0 shadow-precision" : "-translate-x-full")} aria-label="Main navigation">
-      <button onClick={onClose} className="absolute right-2 top-2 grid size-11 place-items-center rounded-[6px] text-paper/60 hover:bg-white/10 hover:text-paper lg:hidden" aria-label="Close navigation"><X className="size-4" /></button>
-      <div className="flex h-12 items-center gap-3 px-2" aria-label="Kora"><span className="grid size-9 place-items-center rounded-[8px] bg-accent text-xs font-semibold text-accent-ink">KR</span><span><strong className="block text-[14px] font-semibold tracking-[-0.03em]">Kora</strong><small className="mt-1 block text-[10px] font-medium text-paper/45">Support operations</small></span></div>
+    <aside className={cn("fixed inset-y-3 left-3 z-40 flex w-[244px] max-w-[calc(100vw-24px)] flex-col rounded-[20px] border border-line bg-paper px-3 py-4 text-ink shadow-float transition-transform lg:translate-x-0", open ? "translate-x-0" : "-translate-x-[calc(100%+24px)]")} aria-label="Main navigation">
+      <button onClick={onClose} className="absolute right-2 top-2 grid size-11 place-items-center rounded-[11px] text-ink/60 hover:bg-paper/45 hover:text-ink lg:hidden" aria-label="Close navigation"><X className="size-4" /></button>
+      <div className="flex h-12 items-center gap-3 px-2" aria-label="Kora"><span className="grid size-9 place-items-center rounded-[12px] kora-mark text-xs font-semibold">KR</span><span><strong className="block text-[15px] font-semibold tracking-[-0.02em]">Kora</strong><small className="mt-1 block text-xs font-medium text-ink/55">Support operations</small></span></div>
       <TooltipProvider>
         <nav className="mt-8 flex flex-1 flex-col gap-1.5">
           {navItems.map(({ id, label, icon: Icon }) => (
             <Tooltip key={id} label={label}>
-              <button onClick={() => { onView(id); onClose(); }} aria-label={label} aria-current={activeView === id ? "page" : undefined} className={cn("grid h-11 w-full grid-cols-[18px_minmax(0,1fr)] items-center gap-3 rounded-[7px] border px-3 text-left text-[12px] font-semibold transition-[background-color,color,border-color,transform]", activeView === id ? "border-accent bg-accent text-accent-ink" : "border-transparent text-paper/58 hover:translate-x-0.5 hover:bg-white/[.07] hover:text-paper")}>
+              <button onClick={() => { onView(id); onClose(); }} aria-label={label} aria-current={activeView === id ? "page" : undefined} className={cn("grid h-11 w-full grid-cols-[18px_minmax(0,1fr)] items-center gap-3 rounded-[12px] border px-3 text-left text-sm font-semibold transition-[background-color,color,border-color,transform]", activeView === id ? "border-line bg-muted-surface text-ink" : "border-transparent text-ink/68 hover:translate-x-0.5 hover:bg-canvas hover:text-ink")}>
                 <Icon className="size-[16px] justify-self-center" /><span className="whitespace-nowrap leading-none">{label}</span>
               </button>
             </Tooltip>
           ))}
         </nav>
-        <div className="border-t border-white/10 pt-3">
-          <button onClick={() => onView("settings")} className="flex min-h-16 w-full items-center gap-3 rounded-[7px] px-2 text-left hover:bg-white/[.07]"><span className="grid size-10 place-items-center rounded-full bg-accent text-[12px] font-extrabold text-accent-ink">{initials}</span><span><strong className="block text-[14px] font-extrabold">{displayName}</strong><small className="mt-1 block capitalize text-[12px] font-semibold text-paper/65">{role}</small></span></button>
+        <div className="border-t border-line pt-3">
+          <button onClick={() => onView("settings")} className="flex min-h-16 w-full items-center gap-3 rounded-[12px] px-2 text-left hover:bg-canvas"><span className="grid size-10 place-items-center rounded-full bg-muted-surface text-xs font-extrabold text-ink">{initials}</span><span><strong className="block text-[15px] font-extrabold">{displayName}</strong><small className="mt-1 block capitalize text-xs font-semibold text-ink/60">{role}</small></span></button>
         </div>
       </TooltipProvider>
     </aside>
   );
 }
 
-function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, onLogout, user }) {
+function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, onLogout, user, theme, onThemeToggle }) {
   const [readNotificationIds, setReadNotificationIds] = useState([]);
+  const [notificationPeriod, setNotificationPeriod] = useState("today");
   const displayName = user?.display_name || "Ada Okafor";
   const role = (user?.role || "support_manager").replaceAll("_", " ");
   const initials = displayName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase();
@@ -184,14 +186,18 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
       : backend.state === "online" ? "AI setup required" : "AI service unavailable";
   const notifications = [...tickets]
     .sort((a, b) => Number(b.escalated) - Number(a.escalated) || urgencyOrder[a.urgency] - urgencyOrder[b.urgency] || a.minutesAgo - b.minutesAgo)
-    .slice(0, 4)
     .map((ticket) => ({
       ...ticket,
       notificationTitle: ticket.escalated ? "Human review required" : isProcessed(ticket) ? `${intentShort[ticket.intent] || ticket.intent} triaged` : "Live triage pending"
     }));
   const unreadCount = notifications.filter((notification) => !readNotificationIds.includes(notification.id)).length;
-  const reviewCount = tickets.filter((ticket) => ticket.escalated).length;
-  const slaRiskCount = tickets.filter((ticket) => slaState(ticket)).length;
+  const periodFor = (notification) => notification.minutesAgo < 1440 ? "today" : notification.minutesAgo < 10080 ? "week" : "earlier";
+  const visibleNotifications = notifications.filter((notification) => periodFor(notification) === notificationPeriod).slice(0, 5);
+  const notificationPeriods = [
+    { id: "today", label: "Today" },
+    { id: "week", label: "This week" },
+    { id: "earlier", label: "Earlier" }
+  ];
   return (
     <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-line bg-paper px-4 sm:px-7 lg:px-8">
       <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -199,28 +205,33 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
         <h1 className="truncate text-[18px] font-semibold tracking-[-0.035em] sm:text-[20px]"><span className="sm:hidden">{titles[activeView].compact}</span><span className="hidden sm:inline">{titles[activeView].full}</span></h1>
       </div>
       <div className="flex items-center gap-2">
-        <div className="hidden items-center gap-2 border border-line px-3 py-2 text-[10px] font-bold text-ink-muted sm:flex"><span className={cn("size-2 rounded-full", backend.configured ? "bg-accent" : "bg-line-strong")} />{engineLabel}</div>
+        <div className="hidden items-center gap-2 rounded-[12px] border border-line px-3 py-2 text-xs font-bold text-ink-muted sm:flex"><span className={cn("size-2 rounded-full", backend.configured ? "bg-accent" : "bg-line-strong")} />{engineLabel}</div>
+        <Button variant="outline" size="icon" onClick={onThemeToggle} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
+          {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="icon" aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`} className="relative">
               <Bell className="size-4" />
-              {unreadCount > 0 && <span className="absolute right-1.5 top-1.5 grid size-4 place-items-center rounded-full bg-accent text-[8px] font-extrabold text-accent-ink">{unreadCount}</span>}
+              {unreadCount > 0 && <span className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-accent text-xs font-extrabold text-accent-ink">{unreadCount}</span>}
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="notification-popover w-[min(410px,calc(100vw-20px))] p-0" sideOffset={9}>
+          <DropdownMenuContent align="end" className="notification-popover w-[min(400px,calc(100vw-20px))] p-0" sideOffset={9}>
             <div className="notification-header">
               <div className="flex items-center gap-3">
-                <span className="grid size-9 place-items-center rounded-[8px] bg-ink text-paper"><BellRing className="size-4" /></span>
-                <div><p className="text-[14px] font-extrabold tracking-[-0.025em]">Support inbox</p><p className="mt-1 text-[9px] font-semibold text-ink-faint">{unreadCount ? `${unreadCount} unread updates` : "No unread updates"}</p></div>
+                <span className="notification-header-icon"><BellRing className="size-4" /></span>
+                <div><p className="text-[16px] font-semibold tracking-[-0.025em]">Notifications</p><p className="mt-0.5 text-xs text-ink-faint">AI and support activity</p></div>
               </div>
-              <button type="button" onClick={() => setReadNotificationIds(notifications.map((notification) => notification.id))} disabled={!unreadCount} className="notification-mark-read"><CheckCheck className="size-3.5" />Mark read</button>
+              <DropdownMenuItem onSelect={() => onView("queue")} className="notification-see-all">See all<ArrowRight className="size-3.5" /></DropdownMenuItem>
             </div>
-            <div className="notification-summary" aria-label="Notification summary">
-              <span><UserRoundCheck className="size-3.5" /><strong>{reviewCount}</strong> reviews waiting</span>
-              <span><Timer className="size-3.5" /><strong>{slaRiskCount}</strong> SLA risks</span>
+            <div className="notification-tabs" role="tablist" aria-label="Notification period">
+              {notificationPeriods.map((period) => {
+                const count = notifications.filter((notification) => periodFor(notification) === period.id).length;
+                return <button key={period.id} type="button" role="tab" aria-selected={notificationPeriod === period.id} className={cn(notificationPeriod === period.id && "is-active")} onClick={() => setNotificationPeriod(period.id)}>{period.label}<span>{count}</span></button>;
+              })}
             </div>
-            <div className="max-h-[430px] overflow-y-auto">
-              {notifications.length ? notifications.map((notification) => {
+            <div className="notification-list max-h-[430px] overflow-y-auto" role="tabpanel">
+              {visibleNotifications.length ? visibleNotifications.map((notification) => {
                 const isRead = readNotificationIds.includes(notification.id);
                 const sla = slaState(notification);
                 return (
@@ -234,27 +245,27 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-start justify-between gap-3">
-                        <span className="min-w-0"><strong className="block truncate text-[11px] font-extrabold">{notification.notificationTitle}</strong><span className="mt-1 block truncate text-[9px] font-semibold text-ink-faint">{notification.customer.name} · {notification.id}</span></span>
+                        <span className="min-w-0"><strong className="block truncate text-sm">{notification.notificationTitle}</strong><span className="mt-1 block truncate text-xs text-ink-faint">{notification.customer.name} · {notification.id}</span></span>
                         {!isRead && <span className="mt-1 size-2 shrink-0 rounded-full bg-accent-strong" aria-label="Unread" />}
                       </span>
-                      <span className="mt-2 block text-[12px] leading-[1.5] text-ink-muted">{intentShort[notification.intent] || notification.intent} · <span className="capitalize">{notification.urgency} urgency</span></span>
-                      <span className="mt-2.5 flex items-center gap-2 text-[12px] font-semibold text-ink-faint">
-                        <span>{sla ? `SLA: ${sla.label}` : `Waiting ${formatRelative(notification.minutesAgo)}`}</span><span className="ml-auto">{operationalState(notification)}</span>
+                      <span className="mt-1.5 block text-[12px] leading-[1.5] text-ink-muted">{intentShort[notification.intent] || notification.intent} · <span className="capitalize">{notification.urgency} urgency</span></span>
+                      <span className="mt-2 flex items-center gap-2 text-[12px] text-ink-faint">
+                        <span>{sla ? `SLA: ${sla.label}` : `Waiting ${formatRelative(notification.minutesAgo)}`}</span><span className="ml-auto font-semibold">{operationalState(notification)}</span>
                       </span>
                     </span>
                   </DropdownMenuItem>
                 );
               }) : (
-                <div className="grid min-h-48 place-items-center px-8 text-center"><div><Bell className="mx-auto size-5 text-ink-faint" /><strong className="mt-3 block text-[12px]">Nothing needs attention</strong><p className="mt-1 text-[9px] leading-4 text-ink-faint">New triage decisions and human reviews will appear here.</p></div></div>
+                <div className="grid min-h-44 place-items-center px-8 text-center"><div><Bell className="mx-auto size-5 text-ink-faint" /><strong className="mt-3 block text-sm">No updates for this period</strong><p className="mt-1 text-[13px] leading-5 text-ink-faint">New triage decisions and human reviews will appear here.</p></div></div>
               )}
             </div>
-            <div className="border-t border-line bg-muted-surface/55 p-2"><DropdownMenuItem onSelect={() => onView("queue")} className="h-10 justify-center gap-2 bg-paper font-bold">Open full support queue<ArrowRight className="size-3.5" /></DropdownMenuItem></div>
+            <div className="notification-footer"><span>{unreadCount ? `${unreadCount} unread` : "You're all caught up"}</span><button type="button" onClick={() => setReadNotificationIds(notifications.map((notification) => notification.id))} disabled={!unreadCount} className="notification-mark-read"><CheckCheck className="size-3.5" />Mark all read</button></div>
           </DropdownMenuContent>
         </DropdownMenu>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="px-2.5 sm:px-3" aria-label="Open profile menu">
-              <span className="grid size-5 place-items-center rounded-full bg-accent text-[8px] font-extrabold text-accent-ink sm:hidden">{initials}</span>
+              <span className="grid size-7 place-items-center rounded-full bg-accent text-xs font-extrabold text-accent-ink sm:hidden">{initials}</span>
               <CircleUserRound className="hidden size-4 sm:block" /><span className="hidden sm:inline">{displayName}</span><ChevronDown className="size-3" />
             </Button>
           </DropdownMenuTrigger>
@@ -280,27 +291,27 @@ function SignedOutView({ onReturn }) {
         <div className="grid size-10 place-items-center bg-ink text-sm font-extrabold text-paper">KR</div>
         <p className="section-label mt-8">Local workspace</p>
         <h1 id="signed-out-title" className="mt-2 text-[24px] font-extrabold tracking-[-0.05em]">You are logged out</h1>
-        <p className="mt-3 text-[11px] leading-5 text-ink-muted">Your Kora workspace is still running locally. Return when you are ready to continue triaging support cases.</p>
+        <p className="mt-3 text-[13px] leading-5 text-ink-muted">Your Kora workspace is still running locally. Return when you are ready to continue triaging support cases.</p>
         <Button onClick={onReturn} className="mt-7 w-full">Return to workspace</Button>
       </section>
     </main>
   );
 }
 
-function MetricsStrip({ tickets, automation, governance, onFilter }) {
-  const open = tickets.filter((ticket) => !["resolved", "sent", "delivered"].includes(ticket.lifecycle?.state));
-  const metrics = [
-    { key: "review", label: "Needs human review", value: open.filter((ticket) => policyState(ticket) === "mandatory").length, meta: `Open conversations, right now` },
-    { key: "sla", label: "SLA breached or at risk", value: open.filter((ticket) => slaState(ticket)).length, meta: "Open conversations, current SLA clock" },
-    { key: "unassigned", label: "Unassigned conversations", value: open.filter((ticket) => !ticket.lifecycle?.assigned_to && !ticket.assignee && ticket.status !== "Assigned").length, meta: `Of ${open.length} open conversations` }
+function MetricsStrip({ tickets, filters, onFilter }) {
+  const views = [
+    { key: "all", label: "All conversations", icon: Inbox, value: tickets.length },
+    { key: "review", label: "Needs review", icon: UserRoundCheck, value: tickets.filter((ticket) => policyState(ticket) === "mandatory").length },
+    { key: "sla", label: "SLA risk", icon: Timer, value: tickets.filter((ticket) => slaState(ticket)).length },
+    { key: "unassigned", label: "Unassigned", icon: CircleUserRound, value: tickets.filter((ticket) => !ticket.lifecycle?.assigned_to && !ticket.assignee && ticket.status !== "Assigned").length }
   ];
+  const active = filters.review ? "review" : filters.sla ? "sla" : filters.unassigned ? "unassigned" : "all";
   return (
-    <section className="operational-priorities" aria-label="Queue priorities">
-      {metrics.map((item) => (
-        <button key={item.label} type="button" className="priority-metric" onClick={() => onFilter(item.key)} aria-label={`${item.label}: ${item.value}. ${item.meta}`}>
-          <span><strong>{item.value}</strong><span>{item.label}</span></span><small>{item.meta}</small><ArrowRight className="size-4" />
-        </button>
-      ))}
+    <section className="queue-overview" aria-label="Queue priorities">
+      <div className="queue-intro"><div><span className="section-label">Support inbox</span><h2>Every conversation, in focus.</h2></div><span className="queue-overview-note"><ShieldCheck className="size-4" />AI assisted. Human owned.</span></div>
+      <div className="queue-views" aria-label="Conversation views">
+        {views.map(({ key, label, icon: Icon, value }) => <button key={key} type="button" data-view={key} className={cn("queue-view-tab", active === key && "is-active")} aria-pressed={active === key} onClick={() => onFilter(key)}><Icon className="size-4" /><span>{label}</span><span className="view-count">{value}</span></button>)}
+      </div>
     </section>
   );
 }
@@ -312,7 +323,7 @@ function QueueLoading() {
 function EmptyQueue({ onReset }) {
   return (
     <div className="grid min-h-[430px] place-items-center px-8 text-center">
-      <div className="max-w-[260px]"><div className="mx-auto grid size-12 place-items-center border border-line-strong bg-muted-surface"><Inbox className="size-5" /></div><h3 className="mt-5 text-[15px] font-extrabold tracking-[-0.03em]">No tickets match this view</h3><p className="mt-2 text-[11px] leading-5 text-ink-muted">Clear the filters to return to the full support queue.</p><Button onClick={onReset} variant="outline" size="sm" className="mt-5">Reset filters</Button></div>
+      <div className="max-w-[280px]"><div className="mx-auto grid size-12 place-items-center border border-line-strong bg-muted-surface"><Inbox className="size-5" /></div><h3 className="mt-5 text-[17px] font-extrabold tracking-[-0.03em]">No tickets match this view</h3><p className="mt-2 text-sm leading-6 text-ink-muted">Clear the filters to return to the full support queue.</p><Button onClick={onReset} variant="outline" size="sm" className="mt-5">Reset filters</Button></div>
     </div>
   );
 }
@@ -321,19 +332,19 @@ function EmptyCaseDetail() {
   return <section className="compact-empty m-4 grid min-h-[320px] place-items-center rounded-[10px] border border-line bg-canvas p-8 text-center"><div><Inbox className="mx-auto mb-3 size-6 text-ink-faint" /><strong className="text-sm">No case selected</strong><p className="mt-2 max-w-sm text-ink-muted">New inbound cases will appear here when they arrive.</p></div></section>;
 }
 
-function TicketRow({ ticket, selected, checked, onSelect, onCheck, automation = { enabled: false, auto_approve_threshold: 95, mandatory_review_threshold: 70 }, governance }) {
+function TicketRow({ ticket, selected, checked, onSelect, onCheck }) {
   const sla = slaState(ticket);
   const state = operationalState(ticket);
-  const stateVariant = state === "Needs review" || state === "Escalated" ? "strong" : state === "Auto-approved" ? "accent" : "neutral";
+  const initials = ticket.customer.name.split(" ").slice(0, 2).map((part) => part[0]).join("");
+  const Channel = ticket.channel === "email" ? Mail : MessageCircle;
   return (
-    <div data-ticket={ticket.id} className={cn("ticket-row group", selected && "bg-selected")}>
-      <button type="button" onClick={() => onCheck(ticket.id)} aria-label={`${checked ? "Deselect" : "Select"} ${ticket.id}`} aria-pressed={checked} className="ticket-select-control">{checked ? <SquareCheckBig className="size-5 text-ink" /> : <Square className="size-5" />}</button>
-      <button type="button" onClick={() => onSelect(ticket.id)} className="min-w-0 flex-1 text-left" aria-pressed={selected}>
-        <span className="flex items-center justify-between gap-3"><strong className="truncate text-[14px] font-semibold tracking-[-0.02em]">{ticket.customer.name}</strong><time className="text-[12px] font-semibold text-ink-faint">Waiting {formatRelative(ticket.minutesAgo)}</time></span>
-        <span className="mt-2 flex flex-wrap items-center gap-2"><span className="text-[13px] font-semibold">{intentShort[ticket.intent] || ticket.intent}</span><Badge variant={stateVariant}>{state}</Badge></span>
-        <span className="mt-2.5 line-clamp-2 text-[14px] leading-[1.55] text-ink-muted">{maskSensitive(ticket.message)}</span>
-        {sla && <span className={cn("mt-3 inline-flex items-center gap-1.5 text-[12px] font-semibold", sla.overdue ? "text-red-700" : "text-amber-700")}><Timer className="size-3.5" />{sla.overdue ? "SLA breached" : "SLA at risk"}: {sla.label}</span>}
-        <details className="ticket-secondary mt-2" onClick={(event) => event.stopPropagation()}><summary>More details</summary><span>{ticket.id} · <span className="capitalize">{ticket.channel}</span> · {ticket.route}{isProcessed(ticket) ? ` · ${Math.round(ticket.confidence * 100)}% confidence` : ""}{ticket.memoryUsed ? " · Customer history used" : ""}</span></details>
+    <div data-ticket={ticket.id} className={cn("ticket-row group", selected && "bg-selected", checked && "ticket-checked")}>
+      <button type="button" onClick={() => onCheck(ticket.id)} aria-label={`${checked ? "Deselect" : "Select"} ${ticket.id}`} aria-pressed={checked} className="ticket-select-control">{checked ? <SquareCheckBig className="size-4" /> : <Square className="size-4" />}</button>
+      <button type="button" onClick={() => onSelect(ticket.id)} className="ticket-open" aria-pressed={selected} aria-label={`Open ${ticket.id}, ${ticket.customer.name}`}>
+        <span className="ticket-person"><span className={cn("ticket-avatar", ticket.channel === "email" && "ticket-avatar-email")}>{initials}</span><strong>{ticket.customer.name}</strong><time title={`Waiting ${formatRelative(ticket.minutesAgo)}`}>{formatRelative(ticket.minutesAgo)}</time></span>
+        <span className="ticket-subject">{ticket.subject || (isProcessed(ticket) ? ticket.intent : "New support request")}</span>
+        <span className="ticket-preview">{maskSensitive(ticket.message)}</span>
+        <span className="ticket-footer"><span className="ticket-channel" title={ticket.channel === "email" ? "Email" : "WhatsApp"}><Channel />{ticket.id}</span>{sla ? <span className={cn("ticket-sla", sla.overdue && "is-overdue")}><Timer />{sla.label}</span> : <span className="ticket-state">{state === "pending" ? "Awaiting triage" : state}</span>}{selected && <span className="ticket-current" aria-label="Current conversation" />}</span>
       </button>
     </div>
   );
@@ -341,13 +352,16 @@ function TicketRow({ ticket, selected, checked, onSelect, onCheck, automation = 
 
 function QueuePane({ tickets, selectedId, onSelect, loading, query, onQuery, filters, onFilters, selectedIds = [], onToggle, onSelectAll, onBulkApprove, onBulkRoute, bulkLoading, automation = { enabled: false, auto_approve_threshold: 95, mandatory_review_threshold: 70 }, governance, scrollRef }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const reset = () => { onQuery(""); onFilters({ review: false, high: false, sla: false, unassigned: false, channel: "all", urgency: "all", team: "all" }); };
+  const [sort, setSort] = useState("priority");
+  const sortedTickets = useMemo(() => [...tickets].sort((a, b) => sort === "newest" ? a.minutesAgo - b.minutesAgo : sort === "oldest" ? b.minutesAgo - a.minutesAgo : urgencyOrder[a.urgency] - urgencyOrder[b.urgency] || b.minutesAgo - a.minutesAgo), [tickets, sort]);
+  const filterCount = [filters.high, filters.assignee !== "all", filters.channel !== "all", filters.urgency !== "all", filters.team !== "all"].filter(Boolean).length;
+  const reset = () => { onQuery(""); onFilters({ review: false, high: false, sla: false, unassigned: false, assignee: "all", channel: "all", urgency: "all", team: "all" }); };
   const allSelected = tickets.length > 0 && tickets.every((ticket) => selectedIds.includes(ticket.id));
   const selectedLowRisk = tickets.filter((ticket) => selectedIds.includes(ticket.id) && lowRisk(ticket)).length;
   const chip = (label, value, options, key) => (
     <Select value={value} onValueChange={(nextValue) => onFilters({ ...filters, [key]: nextValue })}>
       <SelectTrigger aria-label={`Filter by ${label.toLowerCase()}`} className={cn("h-9 min-w-[118px] bg-paper", value !== "all" && "border-ink bg-selected")}>
-        <span className="text-[9px] font-bold uppercase tracking-[0.06em] text-ink-faint">{label}</span>
+        <span className="text-xs font-bold uppercase tracking-[0.06em] text-ink-faint">{label}</span>
         <SelectValue />
       </SelectTrigger>
       <SelectContent align="start">
@@ -356,31 +370,32 @@ function QueuePane({ tickets, selectedId, onSelect, loading, query, onQuery, fil
     </Select>
   );
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] border border-line bg-paper" aria-labelledby="queue-heading">
-      <div className="border-b border-line p-4 sm:p-5">
-        <div className="flex items-center justify-between"><h2 id="queue-heading" className="text-[18px] font-semibold tracking-[-0.035em]">Open conversations <span className="text-ink-faint">{tickets.length}</span></h2>
-          <Button variant="outline" onClick={() => setFiltersOpen((value) => !value)} aria-expanded={filtersOpen} className="queue-filter-button"><Filter className="size-4" />Filters</Button>
+    <section className="queue-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-paper" aria-labelledby="queue-heading">
+      <div className="queue-tools">
+        <div className="flex items-center justify-between"><h2 id="queue-heading" className="text-[16px] font-semibold tracking-[-0.025em]">Conversations <span className="queue-result-count">{tickets.length}</span></h2>
+          <Button variant="outline" onClick={() => setFiltersOpen((value) => !value)} aria-expanded={filtersOpen} className="queue-filter-button"><Filter className="size-4" />Filters{filterCount > 0 && <span className="view-count">{filterCount}</span>}</Button>
         </div>
-        <label className="mt-4 flex h-11 items-center gap-2 rounded-[7px] border border-line-strong bg-canvas px-3 focus-within:border-ink focus-within:ring-2 focus-within:ring-ring"><Search className="size-4 text-ink-faint" /><span className="sr-only">Search tickets</span><input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Search name, case or message" className="min-w-0 flex-1 bg-transparent text-[12px] font-semibold outline-none placeholder:text-ink-faint" /></label>
-        <div className={cn("queue-filter-fields mt-3 flex-wrap gap-2", filtersOpen ? "flex" : "hidden md:flex")} aria-label="Ticket filters">
+        <label className="queue-search mt-3 flex h-11 items-center gap-2 rounded-[12px] border border-line bg-canvas px-3 focus-within:border-ink focus-within:ring-2 focus-within:ring-ring"><Search className="size-4 text-ink-faint" /><span className="sr-only">Search tickets</span><input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Search name, case or message" className="min-w-0 flex-1 bg-transparent text-[12px] font-semibold outline-none placeholder:text-ink-faint" /></label>
+        <div className={cn("queue-filter-fields mt-3 flex-wrap gap-2", filtersOpen ? "flex" : "hidden")} aria-label="Ticket filters">
           {chip("Channel", filters.channel, [{ value: "all", label: "All channels" }, { value: "whatsapp", label: "WhatsApp" }, { value: "email", label: "Email" }], "channel")}
           {chip("Urgency", filters.urgency, [{ value: "all", label: "All urgency" }, ...["critical", "high", "medium", "low"].map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }))], "urgency")}
           {chip("Team", filters.team, [{ value: "all", label: "All teams" }, ...teamOptions.map((value) => ({ value, label: value }))], "team")}
-          {(query || filters.review || filters.high || filters.sla || filters.unassigned || filters.channel !== "all" || filters.urgency !== "all" || filters.team !== "all") && <Button variant="ghost" size="sm" onClick={reset}><X className="size-3" />Clear</Button>}
+          {(query || filters.review || filters.high || filters.sla || filters.unassigned || filters.assignee !== "all" || filters.channel !== "all" || filters.urgency !== "all" || filters.team !== "all") && <Button variant="ghost" size="sm" onClick={reset}><X className="size-3" />Clear</Button>}
         </div>
-        <div className="active-filter-chips md:hidden">{filters.review && <button onClick={() => onFilters({ ...filters, review: false })}>Needs review <X /></button>}{filters.sla && <button onClick={() => onFilters({ ...filters, sla: false })}>SLA risk <X /></button>}{filters.unassigned && <button onClick={() => onFilters({ ...filters, unassigned: false })}>Unassigned <X /></button>}</div>
+        <div className="active-filter-chips">{filters.review && <button onClick={() => onFilters({ ...filters, review: false })}>Needs review <X /></button>}{filters.sla && <button onClick={() => onFilters({ ...filters, sla: false })}>SLA risk <X /></button>}{filters.unassigned && <button onClick={() => onFilters({ ...filters, unassigned: false })}>Unassigned <X /></button>}</div>
       </div>
-      <div className="flex min-h-10 items-center justify-between border-b border-line bg-muted-surface px-4 py-2">
-        <button type="button" onClick={() => onSelectAll(tickets.map((ticket) => ticket.id), !allSelected)} className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[0.08em] text-ink-muted">{allSelected ? <SquareCheckBig className="size-4 text-ink" /> : <Square className="size-4" />}{selectedIds.length ? `${selectedIds.length} selected` : "Select all"}</button>
-        {selectedIds.length > 0 && <div className="flex items-center gap-1.5"><Button size="sm" variant="outline" className="h-7 px-2 text-[9px]" disabled={!selectedLowRisk || bulkLoading} onClick={onBulkApprove}><Check className="size-3" />Approve {selectedLowRisk || ""}</Button><DropdownMenu><DropdownMenuTrigger asChild><Button size="sm" className="h-7 px-2 text-[9px]" disabled={bulkLoading}><Route className="size-3" />Route<ChevronDown className="size-3" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{teamOptions.map((team) => <DropdownMenuItem key={team} onSelect={() => onBulkRoute(team)}>{team}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu></div>}
+      <div className="queue-selection-bar flex min-h-10 items-center justify-between border-b border-line px-4 py-1">
+        <button type="button" onClick={() => onSelectAll(tickets.map((ticket) => ticket.id), !allSelected)} className="flex items-center gap-2 text-xs font-semibold text-ink-muted">{allSelected ? <SquareCheckBig className="size-4 text-ink" /> : <Square className="size-4" />}{selectedIds.length ? `${selectedIds.length} selected` : "Select all"}</button>
+        {selectedIds.length === 0 && <Select value={sort} onValueChange={setSort}><SelectTrigger aria-label="Sort conversations" className="queue-sort"><SelectValue /></SelectTrigger><SelectContent align="end"><SelectItem value="priority">Priority first</SelectItem><SelectItem value="oldest">Oldest first</SelectItem><SelectItem value="newest">Newest first</SelectItem></SelectContent></Select>}
+        {selectedIds.length > 0 && <div className="flex items-center gap-1.5"><Button size="sm" variant="outline" className="h-8 px-2.5 text-xs" disabled={!selectedLowRisk || bulkLoading} onClick={onBulkApprove}><Check className="size-3" />Approve {selectedLowRisk || ""}</Button><DropdownMenu><DropdownMenuTrigger asChild><Button size="sm" className="h-8 px-2.5 text-xs" disabled={bulkLoading}><Route className="size-3" />Route<ChevronDown className="size-3" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{teamOptions.map((team) => <DropdownMenuItem key={team} onSelect={() => onBulkRoute(team)}>{team}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu></div>}
       </div>
-      <div className="queue-scroll" ref={scrollRef}>{loading ? <QueueLoading /> : tickets.length ? tickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} selected={selectedId === ticket.id} checked={selectedIds.includes(ticket.id)} onSelect={onSelect} onCheck={onToggle} automation={automation} governance={governance} />) : <EmptyQueue onReset={reset} />}</div>
+      <div className="queue-scroll" ref={scrollRef}>{loading ? <QueueLoading /> : tickets.length ? sortedTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} selected={selectedId === ticket.id} checked={selectedIds.includes(ticket.id)} onSelect={onSelect} onCheck={onToggle} automation={automation} governance={governance} />) : <EmptyQueue onReset={reset} />}</div>
     </section>
   );
 }
 
 function EntityTag({ label, value }) {
-  return <div className="rounded-[6px] bg-muted-surface px-3 py-2.5"><span className="block text-[12px] text-ink-faint">{label}</span><strong className="mt-1 block text-[13px] font-semibold">{maskSensitive(value)}</strong></div>;
+  return <div className="rounded-[11px] bg-muted-surface px-3 py-2.5"><span className="block text-[12px] text-ink-faint">{label}</span><strong className="mt-1 block text-[13px] font-semibold">{maskSensitive(value)}</strong></div>;
 }
 
 function TicketDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onResolve, onAssign, onAddNote, onVerifyTransaction, onManualAssessment, aiLoading, actionLoading, backend, automation = { enabled: true, auto_approve_threshold: 95, mandatory_review_threshold: 70 }, memoryItems = [], memoryLoading = false, conversation = [], notes = [], conversationLoading = false, currentUser }) {
@@ -406,7 +421,7 @@ function TicketDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onRe
           {ticket.subject && <p className="mt-5 text-[11px] font-extrabold">{ticket.subject}</p>}
           <blockquote className="mt-4 max-w-[70ch] text-[15px] font-medium leading-7 tracking-[-0.015em] text-ink-muted">“{ticket.message}”</blockquote>
           <div className="mt-6 flex flex-wrap gap-2">{entities.map(([key, value]) => <EntityTag key={key} label={labels[key]} value={value} />)}</div>
-          {(conversationLoading || conversation.length > 0) && <details className="mt-6 border-t border-line pt-4"><summary className="flex cursor-pointer list-none items-center justify-between"><span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[0.09em]"><MessagesSquare className="size-3.5" />Conversation history</span><span className="flex items-center gap-2 text-[9px] text-ink-faint">{conversation.length} messages<ChevronDown className="size-3" /></span></summary><div className="mt-4 space-y-2">{conversationLoading ? <Skeleton className="h-20 w-full" /> : conversation.map((message) => <div key={message.id} className={cn("max-w-[88%] border p-3", message.direction === "outbound" ? "ml-auto border-ink bg-ink text-paper" : "border-line-strong bg-muted-surface")}><div className="flex items-center justify-between gap-4 text-[8px] font-bold uppercase tracking-[0.08em] opacity-70"><span>{message.direction === "outbound" ? "Kora response" : "Customer"}</span><span>{message.delivery_status}</span></div><p className="mt-2 text-[10px] leading-5">{message.body}</p></div>)}</div></details>}
+          {(conversationLoading || conversation.length > 0) && <details className="mt-6 border-t border-line pt-4"><summary className="flex cursor-pointer list-none items-center justify-between"><span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[0.09em]"><MessagesSquare className="size-3.5" />Conversation history</span><span className="flex items-center gap-2 text-[9px] text-ink-faint">{conversation.length} messages<ChevronDown className="size-3" /></span></summary><div className="mt-4 space-y-2">{conversationLoading ? <Skeleton className="h-20 w-full" /> : conversation.map((message) => <div key={message.id} className={cn("max-w-[88%] rounded-[14px] border p-3", message.direction === "outbound" ? "ml-auto border-line-strong bg-selected text-ink" : "border-line bg-muted-surface")}><div className="flex items-center justify-between gap-4 text-[8px] font-bold uppercase tracking-[0.08em] opacity-70"><span>{message.direction === "outbound" ? "Kora response" : "Customer"}</span><span>{message.delivery_status}</span></div><p className="mt-2 text-[10px] leading-5">{message.body}</p></div>)}</div></details>}
         </section>
 
         <div className="decision-columns grid xl:grid-cols-[minmax(0,1.08fr)_minmax(300px,.92fr)]">
@@ -484,7 +499,7 @@ function TicketDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onRe
               <div className="p-4">{ticket.policyCitations?.length ? <div className="space-y-3">{ticket.policyCitations.map((citation) => <div key={citation.id} className="bg-muted-surface p-3"><div className="flex items-center justify-between gap-3"><strong className="text-[10px]">{citation.title}</strong><span className="text-[8px] font-bold text-ink-faint">v{citation.version}</span></div><p className="mt-2 line-clamp-3 text-[9px] leading-4 text-ink-muted">{citation.excerpt}</p></div>)}</div> : <p className="text-[9px] leading-4 text-ink-muted">No approved workspace policy matched this message. The draft must remain human-reviewed.</p>}</div>
             </div>
             {ticket.entities?.transactionId && <div className="mt-5 border border-line-strong bg-paper p-4"><div className="flex items-start justify-between gap-4"><div><span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[0.09em]"><CreditCard className="size-3.5" />Verified transaction status</span><p className="mt-2 text-[9px] leading-4 text-ink-muted">{ticket.verifiedTransaction ? `${ticket.verifiedTransaction.provider} reports ${ticket.verifiedTransaction.status}. This lookup was read-only.` : "Check the extracted reference against Paystack without moving money."}</p></div><Button size="sm" variant="outline" disabled={actionLoading || !backend.paystack?.configured} onClick={() => onVerifyTransaction(ticket)}>{actionLoading ? <LoaderCircle className="size-3.5 animate-spin" /> : <ShieldCheck className="size-3.5" />}{ticket.verifiedTransaction ? "Verify again" : "Verify"}</Button></div>{!backend.paystack?.configured && <p className="mt-3 text-[8px] font-bold text-ink-faint">Configure PAYSTACK_SECRET_KEY to enable this read-only action.</p>}</div>}
-            {ticket.escalationReason && <div className="mt-6 flex gap-3 border border-ink bg-ink p-4 text-paper"><ShieldAlert className="mt-0.5 size-4 shrink-0 text-accent" /><div><strong className="text-[10px] font-extrabold uppercase tracking-[0.08em]">Escalation rule triggered</strong><p className="mt-1 text-[10px] leading-5 text-paper/70">{ticket.escalationReason}</p></div></div>}
+            {ticket.escalationReason && <div className="mt-6 flex gap-3 rounded-[14px] border border-line-strong bg-muted-surface p-4 text-ink"><ShieldAlert className="mt-0.5 size-4 shrink-0 text-accent-strong" /><div><strong className="text-[10px] font-extrabold uppercase tracking-[0.08em]">Escalation rule triggered</strong><p className="mt-1 text-[10px] leading-5 text-ink-muted">{ticket.escalationReason}</p></div></div>}
           </section>
 
           <section className="human-panel rounded-[8px] border border-line p-5 sm:p-7" aria-labelledby="human-checkpoint-title">
@@ -539,6 +554,7 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
         <div className="flex min-w-0 items-center gap-3"><Button variant="ghost" size="icon" className="case-back-button" onClick={onBack} aria-label="Back to queue"><ArrowLeft className="size-4" /></Button><div className="min-w-0"><p className="case-kicker">{ticket.id} · <span className="capitalize">{ticket.channel}</span></p><h2 id="ticket-title">{ticket.customer.name}</h2></div></div>
         <div className="case-header-actions">{ticket.lifecycle?.assigned_to ? <Badge variant="outline"><UserRoundCheck className="size-3" />{ticket.lifecycle.assigned_to}</Badge> : <Button variant="outline" onClick={() => onAssign(ticket.id, "me", null)}><UserPlus className="size-4" />Claim case</Button>}{sla && <Badge variant={sla.overdue ? "strong" : "outline"}><Timer className="size-3" />{sla.label}</Badge>}<DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="More case actions"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => navigator.clipboard?.writeText(`${window.location.origin}/app?case=${ticket.id}`)}>Copy case link</DropdownMenuItem>{ticket.lifecycle?.assigned_to && <DropdownMenuItem onSelect={() => onAssign(ticket.id, null, ticket.lifecycle.assigned_to)}>Release ownership</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu></div>
       </header>
+      <div className="case-context-bar"><span><span className="context-dot" />{operationalState(ticket) === "pending" ? "Awaiting triage" : operationalState(ticket)}</span><span><Route className="size-3.5" />{ticket.route}</span><span><Clock3 className="size-3.5" />Waiting {formatRelative(ticket.minutesAgo)}</span></div>
       <div className="case-body">
         <section className="customer-message-section" aria-labelledby="customer-message-title">
           <div className="case-section-heading"><h3 id="customer-message-title">Customer message</h3><span><Clock3 />{ticket.receivedAt}</span></div>
@@ -550,10 +566,10 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
         </section>
         <div className="case-decision-grid">
           <section className="human-decision" aria-labelledby="agent-decision-title">
-            <h3 id="agent-decision-title">Agent decision</h3>
+            <h3 id="agent-decision-title">Review & respond</h3>
             <div className={cn("authoritative-state", decision.state === "auto" && "authoritative-state-safe")}><ShieldAlert /><div><strong>{decision.reason}</strong><p>The agent remains accountable for the next action.</p></div></div>
             {!isProcessed(ticket) && !backend.configured && <div className="classification-fields"><label>Issue<Select value={correction.intent || undefined} onValueChange={(value) => setCorrection({ ...correction, intent: value })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{intentOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label><label>Urgency<Select value={correction.urgency || undefined} onValueChange={(value) => setCorrection({ ...correction, urgency: value })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{urgencyOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label><label>Team<Select value={correction.route || undefined} onValueChange={(value) => setCorrection({ ...correction, route: value })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{teamOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label></div>}
-            <label className="draft-field"><span>Response draft</span><textarea value={draft} onChange={(event) => setDraft(event.target.value)} disabled={!isProcessed(ticket) && backend.configured} placeholder={!backend.configured ? "Write a human-owned response while the AI service is unavailable." : "A suggested draft will appear here."} rows={9} /></label>
+            <label className="draft-field"><span>Response draft</span><textarea value={draft} onChange={(event) => setDraft(event.target.value)} disabled={!isProcessed(ticket) && backend.configured} placeholder={!backend.configured ? "Write a human-owned response while the AI service is unavailable." : "A suggested draft will appear here."} rows={5} /></label>
             <div className="draft-meta"><span>{draft.length} characters</span><span>{ticket.customer.notes.some((note) => note.includes("Pidgin")) ? "Pidgin aware" : "English"}</span></div>
             <div className="case-primary-actions">
               {!isProcessed(ticket) ? backend.configured ? <Button disabled><LoaderCircle className={cn("size-4", aiLoading && "animate-spin")} />{aiLoading ? "Classifying conversation" : "Classification required"}</Button> : <Button disabled={actionLoading || !correction.intent || !correction.urgency || !correction.route || draft.trim().length < 2} onClick={() => onManualAssessment(ticket, { ...correction, response: draft })}><UserRoundCheck className="size-4" />Save assessment</Button> : ["sent", "delivered", "replied"].includes(ticket.lifecycle?.state) ? <Button disabled={actionLoading} onClick={() => onResolve(ticket.id)}><CheckCircle2 className="size-4" />Mark resolved</Button> : <><Button disabled={actionLoading} onClick={() => onEscalate(ticket.id, draft)} variant="outline"><Users className="size-4" />Assign to specialist</Button><Button disabled={actionLoading || !draft.trim()} onClick={() => onApprove(ticket.id, draft)}>{actionLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}{canSend ? "Approve and send" : "Approve draft"}</Button></>}
@@ -562,7 +578,7 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
             <details className="case-disclosure"><summary><span><MessageCircle />Internal notes</span><span>{notes.length} notes <ChevronDown /></span></summary><div className="disclosure-content notes-content">{notes.slice(0, 3).map((note) => <div key={note.id}><strong>{note.actor}</strong><time>{formatDate(note.created_at)}</time><p>{note.body}</p></div>)}<textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} rows={3} placeholder={`Add a private note. Use @${currentUser?.display_name?.split(" ")[0] || "teammate"} to mention someone.`} /><Button variant="outline" disabled={!noteDraft.trim() || actionLoading} onClick={async () => { const mentions = [...noteDraft.matchAll(/@([A-Za-z][\w.-]*)/g)].map((match) => match[1]); if (await onAddNote(ticket.id, noteDraft, mentions)) setNoteDraft(""); }}>Add private note</Button></div></details>
           </section>
           <section className="suggestion-panel" aria-labelledby="suggestion-title">
-            <div className="suggestion-heading"><div><h3 id="suggestion-title">Suggested classification</h3><p>Supporting information for the agent</p></div>{backend.configured && ticket.source !== "groq" && <Button onClick={() => onRunAI(ticket)} disabled={aiLoading} variant="ghost">{aiLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}Refresh</Button>}</div>
+            <div className="suggestion-heading"><div><h3 id="suggestion-title"><Sparkles className="size-4" /> Triage intelligence</h3><p>Classification, evidence and customer context</p></div>{backend.configured && ticket.source !== "groq" && <Button onClick={() => onRunAI(ticket)} disabled={aiLoading} variant="ghost">{aiLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}Refresh</Button>}</div>
             <dl className="suggestion-summary">{[["Issue", ticket.intent], ["Urgency", ticket.urgency], ["Team", ticket.route], ["Confidence", isProcessed(ticket) ? `${Math.round(ticket.confidence * 100)}%` : "Pending"]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
             {isProcessed(ticket) && <details className="case-disclosure"><summary><span><Wrench />Edit classification</span><ChevronDown /></summary><div className="disclosure-content classification-fields"><label>Issue<Select value={correction.intent || "__keep__"} onValueChange={(value) => setCorrection({ ...correction, intent: value === "__keep__" ? "" : value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__keep__">Keep {ticket.intent}</SelectItem>{intentOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label><label>Urgency<Select value={correction.urgency || "__keep__"} onValueChange={(value) => setCorrection({ ...correction, urgency: value === "__keep__" ? "" : value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__keep__">Keep {ticket.urgency}</SelectItem>{urgencyOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label><label>Team<Select value={correction.route || "__keep__"} onValueChange={(value) => setCorrection({ ...correction, route: value === "__keep__" ? "" : value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__keep__">Keep {ticket.route}</SelectItem>{teamOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label><label>Reason<input value={correction.reason} onChange={(event) => setCorrection({ ...correction, reason: event.target.value })} placeholder="Why is this changing?" /></label><Button variant="outline" disabled={actionLoading || (!correction.intent && !correction.urgency && !correction.route)} onClick={() => onFeedback(ticket.id, correction)}>Save classification</Button></div></details>}
             <details className="case-disclosure"><summary><span><ShieldCheck />Evidence and policy</span><ChevronDown /></summary><div className="disclosure-content evidence-content"><h4>Evidence used</h4>{ticket.evidence.length ? <ol>{ticket.evidence.map((item) => <li key={item}>{item}</li>)}</ol> : <p>No evidence available yet.</p>}<h4>Approved policy sources</h4>{ticket.policyCitations?.length ? ticket.policyCitations.map((citation) => <div key={citation.id}><strong>{citation.title} v{citation.version}</strong><p>{citation.excerpt}</p></div>) : <p>No approved policy matched. The draft must remain human-reviewed.</p>}</div></details>
@@ -577,17 +593,83 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
 }
 
 function TeamView({ tickets, onFilterQueue }) {
+  const [query, setQuery] = useState("");
+  const [availability, setAvailability] = useState("All");
   const members = [
-    { name: "Ada Okafor", role: "Support manager", teams: ["General Support"], initials: "AO", status: "Online", capacity: 8 },
-    { name: "Musa Ibrahim", role: "Payments specialist", teams: ["Transfers", "Billing"], initials: "MI", status: "Busy", capacity: 5 },
-    { name: "Nneka Eze", role: "Risk specialist", teams: ["Fraud", "Compliance"], initials: "NE", status: "Offline", capacity: 4 },
-    { name: "Bola Martins", role: "Customer operations", teams: ["Logistics", "Account Support"], initials: "BM", status: "Online", capacity: 7 }
+    { name: "Ada Okafor", role: "Support manager", teams: ["General Support"], initials: "AO", status: "Online", capacity: 8, tone: "gold" },
+    { name: "Musa Ibrahim", role: "Payments specialist", teams: ["Transfers", "Billing"], initials: "MI", status: "Busy", capacity: 5, tone: "teal" },
+    { name: "Nneka Eze", role: "Risk specialist", teams: ["Fraud", "Compliance"], initials: "NE", status: "Offline", capacity: 4, tone: "blue" },
+    { name: "Bola Martins", role: "Customer operations", teams: ["Logistics", "Account Support"], initials: "BM", status: "Online", capacity: 7, tone: "cream" }
   ];
+  const openTickets = tickets.filter((ticket) => ticket.lifecycle?.state !== "resolved");
+  const rows = members.map((member) => {
+    const assigned = openTickets.filter((ticket) => ticket.lifecycle?.assigned_to === member.name || ticket.assignee === member.name).length;
+    return { ...member, assigned, overloaded: assigned > member.capacity };
+  });
+  const assignedTotal = rows.reduce((total, member) => total + member.assigned, 0);
+  const totalCapacity = rows.reduce((total, member) => total + member.capacity, 0);
+  const unassigned = openTickets.filter((ticket) => !ticket.lifecycle?.assigned_to && !ticket.assignee).length;
+  const filters = ["All", "Online", "Busy", "Offline"];
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleMembers = rows.filter((member) => {
+    const matchesStatus = availability === "All" || member.status === availability;
+    const matchesQuery = !normalizedQuery || [member.name, member.role, ...member.teams].join(" ").toLowerCase().includes(normalizedQuery);
+    return matchesStatus && matchesQuery;
+  });
+  const filterCount = (filter) => filter === "All" ? rows.length : rows.filter((member) => member.status === filter).length;
+  const clearFilters = () => { setQuery(""); setAvailability("All"); };
+
   return (
-    <div className="view-padding">
-      <div className="page-heading"><p>Primary ownership, current capacity and backup coverage for the open queue.</p></div>
-      <div className="table-surface"><Table><TableHeader><TableRow><TableHead>Team member</TableHead><TableHead>Primary coverage</TableHead><TableHead>Assigned</TableHead><TableHead>Capacity</TableHead><TableHead>Availability</TableHead><TableHead><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader><TableBody>{members.map((member) => { const assigned = tickets.filter((ticket) => ticket.lifecycle?.assigned_to === member.name || ticket.assignee === member.name).length; const overloaded = assigned > member.capacity; return <TableRow key={member.name}><TableCell><span className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-muted-surface text-[11px] font-semibold">{member.initials}</span><span><strong className="block">{member.name}</strong><small>{member.role}</small></span></span></TableCell><TableCell>{member.teams.join(", ")}</TableCell><TableCell><strong>{assigned}</strong> primary</TableCell><TableCell><span className={overloaded ? "text-red-700 font-semibold" : ""}>{assigned} of {member.capacity}{overloaded ? " · Overloaded" : ""}</span></TableCell><TableCell><Badge variant={member.status === "Online" ? "accent" : member.status === "Busy" ? "outline" : "neutral"}>{member.status}</Badge></TableCell><TableCell><Button variant="ghost" onClick={() => onFilterQueue(member.name)}>View queue</Button></TableCell></TableRow>; })}</TableBody></Table></div>
-      <p className="mt-4 text-[13px] text-ink-muted">Coverage can overlap, but assignment counts only primary ownership. Total open conversations: {tickets.filter((ticket) => ticket.lifecycle?.state !== "resolved").length}.</p>
+    <div className="view-padding team-page">
+      <section className="team-overview" aria-labelledby="coverage-summary-title">
+        <div className="team-overview-heading">
+          <div>
+            <p className="section-label">Live coverage</p>
+            <h2 id="coverage-summary-title">Coverage at a glance</h2>
+            <p>See who is available, where expertise sits, and how the open queue is distributed.</p>
+          </div>
+          <span className="team-live-note"><span aria-hidden="true" />Updated from the open queue</span>
+        </div>
+        <dl className="team-summary">
+          <div><dt>Available now</dt><dd>{rows.filter((member) => member.status === "Online").length}<small>of {rows.length} teammates</small></dd></div>
+          <div><dt>Assigned cases</dt><dd>{assignedTotal}<small>of {openTickets.length} open</small></dd></div>
+          <div className={cn(unassigned > 0 && "team-summary-attention")}><dt>Unassigned</dt><dd>{unassigned}<small>{unassigned ? "need an owner" : "queue covered"}</small></dd></div>
+          <div><dt>Team utilisation</dt><dd>{totalCapacity ? `${Math.round((assignedTotal / totalCapacity) * 100)}%` : "0%"}<small>{Math.max(totalCapacity - assignedTotal, 0)} slots available</small></dd></div>
+        </dl>
+      </section>
+
+      <section className="team-directory" aria-labelledby="team-directory-title">
+        <header className="team-directory-header">
+          <div><h2 id="team-directory-title">Team directory</h2><p>{rows.length} teammates covering {openTickets.length} open conversations</p></div>
+          <label className="team-search"><span className="sr-only">Search team members or coverage</span><Search aria-hidden="true" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search member or coverage" /></label>
+        </header>
+        <div className="team-toolbar">
+          <div className="team-filter-tabs" aria-label="Filter team by availability">
+            {filters.map((filter) => <button key={filter} type="button" className={cn(availability === filter && "is-active")} aria-pressed={availability === filter} onClick={() => setAvailability(filter)}><span>{filter}</span><b>{filterCount(filter)}</b></button>)}
+          </div>
+          <p aria-live="polite">Showing {visibleMembers.length} of {rows.length}</p>
+        </div>
+
+        <div className="team-table-scroll" tabIndex={0} role="region" aria-label="Team coverage table. Scroll horizontally to see all columns on smaller screens.">
+          <Table className="team-table" aria-labelledby="team-directory-title">
+            <caption className="sr-only">Current support team availability, primary coverage, and assigned workload.</caption>
+            <TableHeader><TableRow><TableHead>Team member</TableHead><TableHead>Primary coverage</TableHead><TableHead>Workload</TableHead><TableHead>Availability</TableHead><TableHead><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader>
+            <TableBody>{visibleMembers.length ? visibleMembers.map((member) => {
+              const percentage = Math.min((member.assigned / member.capacity) * 100, 100);
+              const remaining = member.capacity - member.assigned;
+              return <TableRow key={member.name} className={cn("team-row", member.overloaded && "is-overloaded")}>
+                <th scope="row" className="team-member-cell"><span className={cn("team-avatar", `team-avatar-${member.tone}`)} aria-hidden="true">{member.initials}</span><span><strong>{member.name}</strong><small>{member.role}</small></span></th>
+                <TableCell className="team-coverage-cell"><span className="team-mobile-label">Coverage</span><div className="team-coverage-tags">{member.teams.map((team) => <span key={team}>{team}</span>)}</div></TableCell>
+                <TableCell className="team-workload-cell"><span className="team-mobile-label">Workload</span><div className="team-workload-copy"><strong>{member.assigned} <span>/ {member.capacity}</span></strong><small>{member.overloaded ? `${Math.abs(remaining)} over capacity` : remaining === 0 ? "At capacity" : `${remaining} slot${remaining === 1 ? "" : "s"} available`}</small></div><div className="team-capacity-track" aria-label={`${member.name}: ${member.assigned} assigned out of ${member.capacity} capacity`}><span style={{ width: `${percentage}%` }} /></div></TableCell>
+                <TableCell className="team-status-cell"><span className={cn("team-status", `team-status-${member.status.toLowerCase()}`)}><i aria-hidden="true" />{member.status}</span></TableCell>
+                <TableCell className="team-action-cell"><Button variant="quiet" size="sm" onClick={() => onFilterQueue(member.name)} aria-label={`Open ${member.name}'s queue`}>Open queue<ChevronRight aria-hidden="true" /></Button></TableCell>
+              </TableRow>;
+            }) : <TableRow className="team-empty-row"><TableCell colSpan={5}><div><Search aria-hidden="true" /><strong>No teammates match this view</strong><p>Try another name, coverage area, or availability.</p><Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button></div></TableCell></TableRow>}</TableBody>
+          </Table>
+        </div>
+      </section>
+
+      <p className="team-footnote">Coverage areas may overlap. Workload counts primary ownership across the current open queue.</p>
     </div>
   );
 }
@@ -621,11 +703,11 @@ function ProofView({ runs, onRun, running, backend }) {
   return (
     <div className="view-padding max-w-6xl">
       <div className="mb-7"><p className="section-label">Silent historical evaluation</p><h2 className="mt-1 text-[26px] font-extrabold tracking-[-0.05em]">Prove Kora before activation</h2><p className="mt-2 max-w-2xl text-[11px] leading-5 text-ink-muted">Run labelled historical complaints through the live decision system. Proof cases are isolated from the support queue and can never be delivered to customers.</p></div>
-      {!backend.configured && <div className="mb-5 flex gap-3 border border-ink bg-ink p-4 text-paper"><WifiOff className="size-4 shrink-0 text-accent" /><div><strong className="text-[10px]">Proof Mode needs the configured Groq model</strong><p className="mt-1 text-[9px] text-paper/65">The live workspace remains available for manual handling while AI is unavailable.</p></div></div>}
+      {!backend.configured && <div className="mb-5 flex gap-3 rounded-[14px] border border-line-strong bg-muted-surface p-4 text-ink"><WifiOff className="size-4 shrink-0 text-accent-strong" /><div><strong className="text-[10px]">Proof Mode needs the configured Groq model</strong><p className="mt-1 text-[9px] text-ink-muted">The live workspace remains available for manual handling while AI is unavailable.</p></div></div>}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,.8fr)]">
         <Card className="p-6">
-          <label className="grid gap-2 text-[10px] font-extrabold">Run name<input value={name} onChange={(event) => setName(event.target.value)} className="h-11 rounded-[7px] border border-line-strong bg-paper px-3 text-[11px] outline-none focus:border-ink focus:ring-2 focus:ring-ring" /></label>
-          <label className="mt-5 grid gap-2 text-[10px] font-extrabold">Historical cases<textarea value={source} onChange={(event) => setSource(event.target.value)} rows={16} spellCheck={false} className="w-full resize-y rounded-[8px] border border-line-strong bg-shell p-4 font-mono text-[10px] leading-5 text-paper outline-none focus:ring-2 focus:ring-ring" /></label>
+          <label className="grid gap-2 text-[10px] font-extrabold">Run name<input value={name} onChange={(event) => setName(event.target.value)} className="h-11 rounded-[12px] border border-line-strong bg-paper px-3 text-[11px] outline-none focus:border-ink focus:ring-2 focus:ring-ring" /></label>
+          <label className="mt-5 grid gap-2 text-[10px] font-extrabold">Historical cases<textarea value={source} onChange={(event) => setSource(event.target.value)} rows={16} spellCheck={false} className="w-full resize-y rounded-[12px] border border-line-strong bg-muted-surface p-4 font-mono text-[10px] leading-5 text-ink outline-none focus:ring-2 focus:ring-ring" /></label>
           <div className="mt-3 flex items-center justify-between gap-4"><span className="text-[9px] text-ink-faint">Up to 100 cases. Expected labels are optional.</span><Button onClick={submit} disabled={running || !backend.configured}>{running ? <LoaderCircle className="size-4 animate-spin" /> : <ClipboardCheck className="size-4" />}{running ? "Running proof" : "Run silently"}</Button></div>
           {parseError && <p className="mt-3 text-[9px] font-bold">{parseError}</p>}
         </Card>
@@ -685,24 +767,24 @@ function SettingsView({ automation, onChange, onSave, saving, tickets, integrati
       <div className="page-heading"><p>Confidence is only one requirement. Policy, verification, guardrails, information completeness and delivery must also pass.</p></div>
       <div className="grid gap-5 lg:grid-cols-[1.2fr_.8fr]">
         <Card className="p-6">
-          <div className="flex items-start justify-between gap-5 border-b border-line pb-5"><div><div className="flex items-center gap-2"><Zap className="size-4" /><h3 className="text-[14px] font-semibold">Auto-approve eligible drafts</h3></div><p className="mt-2 max-w-lg text-[13px] leading-5 text-ink-muted">Eligible cases need an approved policy match, no guardrail, required verification, complete information, connected delivery and sufficient confidence.</p></div><Switch aria-label="Enable auto-approval" checked={automation.enabled} disabled={!governanceReady && !automation.enabled} onCheckedChange={(enabled) => onChange({ ...automation, enabled })} /></div>
-          {!governanceReady && <div className="mt-4 rounded-[8px] bg-muted-surface p-4 text-[13px]"><strong>Auto-approval is unavailable</strong><p className="mt-1 text-ink-muted">{!hasActivePolicies ? "Add and activate an approved policy. " : ""}{!hasDelivery ? "Connect email or WhatsApp for live delivery." : ""}</p></div>}
+          <div className="flex items-start justify-between gap-5 border-b border-line pb-5"><div><div className="flex items-center gap-2"><Zap className="size-4" /><h3 className="text-[17px] font-semibold">Auto-approve eligible drafts</h3></div><p className="mt-2 max-w-lg text-sm leading-6 text-ink-muted">Eligible cases need an approved policy match, no guardrail, required verification, complete information, connected delivery and sufficient confidence.</p></div><Switch aria-label="Enable auto-approval" checked={automation.enabled} disabled={!governanceReady && !automation.enabled} onCheckedChange={(enabled) => onChange({ ...automation, enabled })} /></div>
+          {!governanceReady && <div className="mt-4 rounded-[14px] bg-muted-surface p-4 text-[13px]"><strong>Auto-approval is unavailable</strong><p className="mt-1 text-ink-muted">{!hasActivePolicies ? "Add and activate an approved policy. " : ""}{!hasDelivery ? "Connect email or WhatsApp for live delivery." : ""}</p></div>}
           <label className="automation-range mt-6 block"><span className="flex items-center justify-between gap-4"><span>Auto-approve threshold</span><strong>{automation.auto_approve_threshold}%</strong></span><input type="range" min="80" max="99" value={automation.auto_approve_threshold} onChange={(event) => onChange({ ...automation, auto_approve_threshold: Number(event.target.value) })} /><span className="range-bounds"><span>80%</span><span>99%</span></span></label>
           <label className="automation-range mt-7 block border-t border-line pt-6"><span className="flex items-center justify-between gap-4"><span>Mandatory review below</span><strong>{automation.mandatory_review_threshold}%</strong></span><input type="range" min="50" max="90" value={automation.mandatory_review_threshold} onChange={(event) => onChange({ ...automation, mandatory_review_threshold: Number(event.target.value) })} /><span className="range-bounds"><span>50%</span><span>90%</span></span></label>
-          {automation.mandatory_review_threshold >= automation.auto_approve_threshold && <p className="mt-4 flex items-center gap-2 text-[10px] font-bold"><CircleAlert className="size-4" />The lower threshold must remain below auto-approve.</p>}
+          {automation.mandatory_review_threshold >= automation.auto_approve_threshold && <p className="mt-4 flex items-center gap-2 text-xs font-bold"><CircleAlert className="size-4" />The lower threshold must remain below auto-approve.</p>}
           {confirmSave ? <div className="mt-5 border-y border-line py-4 text-[13px]"><strong>Recorded queue impact</strong><p className="mt-1 text-ink-muted">{autoCount} conversations are recorded as eligible and {reviewCount} require review. New settings apply when a case is next triaged.</p><div className="mt-3 flex gap-2"><Button onClick={() => { onSave(); setConfirmSave(false); }} disabled={saving}><Save className="size-4" />Confirm and save</Button><Button variant="ghost" onClick={() => setConfirmSave(false)}>Cancel</Button></div></div> : <Button onClick={() => setConfirmSave(true)} disabled={saving || automation.mandatory_review_threshold >= automation.auto_approve_threshold || (automation.enabled && !governanceReady)} className="mt-7"><Save className="size-4" />Review changes</Button>}
         </Card>
-      <div className="automation-impact p-6"><h3 className="text-[15px] font-semibold">Current queue impact</h3><div className="mt-5 divide-y divide-line">{[["Eligible for auto-approval", autoCount, "All safety conditions pass"], ["Assigned conversations", assignedCount, `Primary owner recorded out of ${tickets.length}`], ["Human review required", reviewCount, "A governance or risk condition blocks automation"]].map(([label, count, meta]) => <div key={label} className="flex items-center justify-between py-4"><span><strong className="block text-[13px]">{label}</strong><small className="mt-1 block text-[12px] text-ink-faint">{meta}</small></span><strong className="text-[22px] font-semibold">{count}</strong></div>)}</div></div>
+      <div className="automation-impact p-6"><h3 className="text-[17px] font-semibold">Current queue impact</h3><div className="mt-5 divide-y divide-line">{[["Eligible for auto-approval", autoCount, "All safety conditions pass"], ["Assigned conversations", assignedCount, `Primary owner recorded out of ${tickets.length}`], ["Human review required", reviewCount, "A governance or risk condition blocks automation"]].map(([label, count, meta]) => <div key={label} className="flex items-center justify-between py-4"><span><strong className="block text-sm">{label}</strong><small className="mt-1 block text-[13px] text-ink-faint">{meta}</small></span><strong className="text-[22px] font-semibold">{count}</strong></div>)}</div></div>
       </div>
-      <div className="mt-5 border border-line-strong bg-paper">
-        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-line p-6"><div><h3 className="text-[16px] font-semibold tracking-[-0.03em]">Customer channels</h3><p className="mt-2 max-w-2xl text-[13px] leading-5 text-ink-muted">Only connected live channels can deliver an approved response.</p></div><Badge variant={hasDelivery ? "accent" : "neutral"}>{hasDelivery ? "Delivery available" : "Delivery unavailable"}</Badge></div>
+      <div className="automation-surface mt-5 border border-line-strong bg-paper">
+        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-line p-6"><div><h3 className="text-[17px] font-semibold tracking-[-0.02em]">Customer channels</h3><p className="mt-2 max-w-2xl text-sm leading-6 text-ink-muted">Only connected live channels can deliver an approved response.</p></div><Badge variant={hasDelivery ? "accent" : "neutral"}>{hasDelivery ? "Delivery available" : "Delivery unavailable"}</Badge></div>
         <div className="grid lg:grid-cols-[1fr_1fr_.8fr]">
           {[["Email", Mail, integrations?.email], ["WhatsApp", MessageCircle, integrations?.whatsapp]].map(([label, Icon, channel]) => <div key={label} className="border-b border-line p-6 lg:border-b-0 lg:border-r"><div className="flex items-center justify-between"><span className="flex items-center gap-2"><Icon className="size-4" /><strong className="text-[13px]">{label}</strong></span><Badge variant={channel?.configured ? "accent" : "neutral"}>{channel?.configured ? "Connected" : "Not connected"}</Badge></div></div>)}
           <div className="p-6"><div className="flex items-center gap-2"><Wrench className="size-4" /><strong className="text-[13px]">System health</strong></div><p className="mt-3 text-[13px] text-ink-muted">{(jobs?.counts?.dead || 0) > 0 ? "Some deliveries need attention" : "System healthy"}</p></div>
         </div>
       </div>
-      <div className="mt-5 border border-line-strong bg-paper">
-        <div className="border-b border-line p-6"><h3 className="text-[16px] font-semibold tracking-[-0.02em]">Approved response policies</h3><p className="mt-2 max-w-2xl text-[13px] leading-5 text-ink-muted">Kora retrieves matching policy text before drafting and records every cited version in the case audit.</p></div>
+      <div className="automation-surface mt-5 border border-line-strong bg-paper">
+        <div className="border-b border-line p-6"><h3 className="text-[17px] font-semibold tracking-[-0.02em]">Approved response policies</h3><p className="mt-2 max-w-2xl text-sm leading-6 text-ink-muted">Kora retrieves matching policy text before drafting and records every cited version in the case audit.</p></div>
         <div className="grid lg:grid-cols-[1fr_1fr]">
           <div className="border-b border-line p-6 lg:border-b-0 lg:border-r">
             <div className="grid gap-4 sm:grid-cols-[1fr_140px]"><label className="automation-field">Policy title<Input value={policyDraft.title} onChange={(event) => setPolicyDraft({ ...policyDraft, title: event.target.value })} placeholder="Transfer reversal timeline" /></label><label className="automation-field">Version<Input value={policyDraft.version} onChange={(event) => setPolicyDraft({ ...policyDraft, version: event.target.value })} /></label></div>
@@ -710,7 +792,7 @@ function SettingsView({ automation, onChange, onSave, saving, tickets, integrati
             <label className="automation-field mt-4">Approved content<textarea value={policyDraft.content} onChange={(event) => setPolicyDraft({ ...policyDraft, content: event.target.value })} rows={7} placeholder="Paste the exact approved policy, required information, timeline and escalation path." /></label>
             <Button className="mt-3" disabled={policySaving || policyDraft.title.length < 3 || policyDraft.content.length < 20} onClick={async () => { const saved = await onCreatePolicy({ ...policyDraft, source_url: policyDraft.source_url || null }); if (saved) setPolicyDraft({ title: "", version: "1.0", source_url: "", content: "" }); }}><BookOpenCheck className="size-4" />{policySaving ? "Saving policy" : "Approve policy"}</Button>
           </div>
-          <div className="divide-y divide-line">{policies.length ? policies.map((policy) => <div key={policy.id} className="flex items-start justify-between gap-5 p-5"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-[13px]">{policy.title}</strong><Badge variant={policy.active ? "accent" : "neutral"} shape="pill">v{policy.version}</Badge></div><p className="mt-2 line-clamp-2 text-[12px] leading-5 text-ink-muted">{policy.content}</p></div><Switch aria-label={`${policy.active ? "Deactivate" : "Activate"} ${policy.title}`} checked={Boolean(policy.active)} onCheckedChange={(active) => onTogglePolicy(policy.id, active)} /></div>) : <div className="p-6"><BookOpenCheck className="size-5 text-ink-faint" /><strong className="mt-3 block text-[13px]">No approved policies</strong><p className="mt-1 max-w-md text-[12px] leading-5 text-ink-muted">Drafts remain human-reviewed until the first company policy is added.</p></div>}</div>
+          <div className="divide-y divide-line">{policies.length ? policies.map((policy) => <div key={policy.id} className="flex items-start justify-between gap-5 p-5"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-sm">{policy.title}</strong><Badge variant={policy.active ? "accent" : "neutral"} shape="pill">v{policy.version}</Badge></div><p className="mt-2 line-clamp-2 text-[13px] leading-5 text-ink-muted">{policy.content}</p></div><Switch aria-label={`${policy.active ? "Deactivate" : "Activate"} ${policy.title}`} checked={Boolean(policy.active)} onCheckedChange={(active) => onTogglePolicy(policy.id, active)} /></div>) : <div className="p-6"><BookOpenCheck className="size-5 text-ink-faint" /><strong className="mt-3 block text-sm">No approved policies</strong><p className="mt-1 max-w-md text-[13px] leading-5 text-ink-muted">Drafts remain human-reviewed until the first company policy is added.</p></div>}</div>
         </div>
       </div>
     </div>
@@ -776,44 +858,83 @@ function DecisionAuditView({ items, loading }) {
   const [eventType, setEventType] = useState("all");
   const [actor, setActor] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
+  const [scope, setScope] = useState("all");
+  const [selectedEventId, setSelectedEventId] = useState(null);
   const displayActor = (item) => item.event_type === "triage" ? "Kora automation" : item.actor || "System";
+  const eventScope = (item) => {
+    if (["triage", "safety_policy_auto_approved", "confidence_auto_approved"].includes(item.event_type)) return "automation";
+    if (["policy_created", "proof_run_completed"].includes(item.event_type)) return "governance";
+    return "human";
+  };
+  const eventName = (item) => auditLabels[item.event_type] || item.event_type.replaceAll("_", " ");
+  const decisionSummary = (item) => item.decision?.intent || item.decision?.status || "Recorded action";
+  const reason = (item) => item.guardrails?.reason || item.decision?.evidence?.join("; ") || "Agent decision";
   const filtered = items.filter((item) => {
-    const haystack = `${item.case_id} ${item.customer_id} ${item.event_type} ${displayActor(item)}`.toLowerCase();
-    return (!search || haystack.includes(search.toLowerCase())) && (eventType === "all" || item.event_type === eventType) && (actor === "all" || displayActor(item) === actor) && (!dateFrom || new Date(item.created_at) >= new Date(dateFrom));
+    const haystack = `${item.case_id} ${item.customer_id} ${item.event_type} ${eventName(item)} ${decisionSummary(item)} ${displayActor(item)} ${reason(item)}`.toLowerCase();
+    return (!search || haystack.includes(search.toLowerCase())) && (scope === "all" || eventScope(item) === scope) && (eventType === "all" || item.event_type === eventType) && (actor === "all" || displayActor(item) === actor) && (!dateFrom || new Date(item.created_at) >= new Date(dateFrom));
   });
-  const exportCsv = () => { const rows = [["time", "case", "customer", "event", "actor", "decision"], ...filtered.map((item) => [item.created_at, item.case_id, item.customer_id, auditLabels[item.event_type] || item.event_type, item.actor || "System", item.decision.intent || item.decision.status || "Recorded action"])]; const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "kora-filtered-audit.csv"; link.click(); URL.revokeObjectURL(link.href); };
+  const exportCsv = () => { const rows = [["time", "case", "customer", "event", "actor", "decision"], ...filtered.map((item) => [item.created_at, item.case_id, item.customer_id, eventName(item), displayActor(item), decisionSummary(item)])]; const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "kora-filtered-audit.csv"; link.click(); URL.revokeObjectURL(link.href); };
   const events = [...new Set(items.map((item) => item.event_type))];
   const actors = [...new Set(items.map(displayActor))];
-  const hasFilters = Boolean(search || dateFrom || eventType !== "all" || actor !== "all");
-  const clearFilters = () => { setSearch(""); setDateFrom(""); setEventType("all"); setActor("all"); };
-  const eventName = (item) => auditLabels[item.event_type] || item.event_type.replaceAll("_", " ");
-  const decisionSummary = (item) => item.decision.intent || item.decision.status || "Recorded action";
-  const reason = (item) => item.guardrails.reason || item.decision.evidence?.join("; ") || "Agent decision";
+  const hasFilters = Boolean(search || dateFrom || eventType !== "all" || actor !== "all" || scope !== "all");
+  const clearFilters = () => { setSearch(""); setDateFrom(""); setEventType("all"); setActor("all"); setScope("all"); };
+  const selectedItem = filtered.find((item) => item.id === selectedEventId) || filtered[0] || null;
+  const scopeOptions = [
+    { key: "all", label: "All activity", description: "Complete decision record", icon: Activity, count: items.length },
+    { key: "automation", label: "Automation", description: "Classifications and policy actions", icon: Bot, count: items.filter((item) => eventScope(item) === "automation").length },
+    { key: "human", label: "Human actions", description: "Agent decisions and access", icon: UserRoundCheck, count: items.filter((item) => eventScope(item) === "human").length },
+    { key: "governance", label: "Governance", description: "Policies and evaluations", icon: BookOpenCheck, count: items.filter((item) => eventScope(item) === "governance").length }
+  ];
+  const scopeIcon = (item) => eventScope(item) === "automation" ? Bot : eventScope(item) === "governance" ? BookOpenCheck : UserRoundCheck;
+  const dateLabel = (value) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  const timeLabel = (value) => new Date(value).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   return (
-    <div className="view-padding">
-      <div className="page-heading page-heading-row">
-        <div><h2>Decision audit</h2><p>Search and inspect automated decisions, agent actions and governance changes.</p></div>
-        <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}><Download className="size-4" />Export results</Button>
-      </div>
-      <section className="audit-filter-panel" aria-label="Audit filters">
-        <div className="audit-filters">
-          <div className="audit-search"><Search className="size-4" /><span className="sr-only">Search audit trail</span><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search case, customer or actor" /></div>
-          <Suspense fallback={<Skeleton className="h-11 w-full" />}><AuditDatePicker value={dateFrom} onChange={setDateFrom} /></Suspense>
-          <Select value={eventType} onValueChange={setEventType}><SelectTrigger aria-label="Event type"><SelectValue placeholder="Event type" /></SelectTrigger><SelectContent><SelectItem value="all">All event types</SelectItem>{events.map((value) => <SelectItem key={value} value={value}>{auditLabels[value] || value.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select>
-          <Select value={actor} onValueChange={setActor}><SelectTrigger aria-label="Actor"><SelectValue placeholder="Actor" /></SelectTrigger><SelectContent><SelectItem value="all">All actors</SelectItem>{actors.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>
+    <div className="view-padding audit-page-v2">
+      <section className="audit-overview" aria-labelledby="audit-overview-title">
+        <div className="audit-overview-heading">
+          <div><p className="section-label">Persisted decision record</p><h2 id="audit-overview-title">Every decision, traceable</h2><p>Investigate automated decisions, human interventions, and governance changes without losing the surrounding context.</p></div>
+          <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}><Download className="size-4" />Export results</Button>
         </div>
-        <div className="audit-filter-summary"><p><strong>{filtered.length}</strong> of {items.length} events shown</p>{hasFilters && <Button variant="ghost" size="sm" onClick={clearFilters}><X className="size-4" />Clear filters</Button>}</div>
+        <div className="audit-scope-grid" aria-label="Filter audit events by activity scope">
+          {scopeOptions.map(({ key, label, description, icon: Icon, count }) => <button key={key} type="button" className={cn(scope === key && "is-active")} aria-pressed={scope === key} onClick={() => setScope(key)}><span className="audit-scope-icon"><Icon aria-hidden="true" /></span><span><strong>{label}</strong><small>{description}</small></span><b>{count}</b></button>)}
+        </div>
       </section>
-      {loading ? <div className="table-surface space-y-3 p-5"><Skeleton className="h-12 w-full" /><Skeleton className="h-16 w-full" /></div> : filtered.length ? <>
-        <div className="table-surface audit-table audit-table-desktop"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Case</TableHead><TableHead>Event</TableHead><TableHead>Decision</TableHead><TableHead>Actor</TableHead><TableHead><span className="sr-only">Details</span></TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => <TableRow key={item.id}><TableCell><time>{formatDate(item.created_at)}</time></TableCell><TableCell><strong>{item.case_id}</strong><small className="mt-1 block">{item.customer_id}</small></TableCell><TableCell>{eventName(item)}</TableCell><TableCell><strong>{decisionSummary(item)}</strong></TableCell><TableCell>{displayActor(item)}</TableCell><TableCell><details className="audit-expansion"><summary>View reasoning</summary><div><p><strong>Reason:</strong> {reason(item)}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></TableCell></TableRow>)}</TableBody></Table></div>
-        <div className="audit-mobile-list">{filtered.map((item) => <article key={item.id} className="audit-mobile-record"><div className="audit-record-heading"><div><span>{eventName(item)}</span><strong>{decisionSummary(item)}</strong></div><time>{formatDate(item.created_at)}</time></div><dl><div><dt>Case</dt><dd>{item.case_id}</dd></div><div><dt>Actor</dt><dd>{displayActor(item)}</dd></div></dl><details className="audit-expansion"><summary>View decision reasoning <ChevronDown className="size-4" /></summary><div><p><strong>Reason:</strong> {reason(item)}</p><p><strong>Customer:</strong> {item.customer_id}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></article>)}</div>
-      </> : <p className="compact-empty">No audit events match these filters. Clear one or more filters to broaden the result.</p>}
+
+      <section className="audit-log-shell" aria-labelledby="activity-log-title">
+        <header className="audit-log-header"><div><h2 id="activity-log-title">Activity log</h2><p>Newest events first · loaded from Kora’s persisted record</p></div><span><strong>{filtered.length}</strong> of {items.length} events</span></header>
+        <div className="audit-filter-panel" aria-label="Audit filters">
+          <div className="audit-filters">
+            <div className="audit-search"><Search className="size-4" aria-hidden="true" /><span className="sr-only">Search audit trail</span><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search case, decision, actor or reason" /></div>
+            <Suspense fallback={<Skeleton className="h-11 w-full" />}><AuditDatePicker value={dateFrom} onChange={setDateFrom} /></Suspense>
+            <Select value={eventType} onValueChange={setEventType}><SelectTrigger aria-label="Event type"><SelectValue placeholder="Event type" /></SelectTrigger><SelectContent><SelectItem value="all">All event types</SelectItem>{events.map((value) => <SelectItem key={value} value={value}>{auditLabels[value] || value.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select>
+            <Select value={actor} onValueChange={setActor}><SelectTrigger aria-label="Actor"><SelectValue placeholder="Actor" /></SelectTrigger><SelectContent><SelectItem value="all">All actors</SelectItem>{actors.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>
+          </div>
+          <div className="audit-filter-summary"><p>{hasFilters ? "Filters are narrowing the persisted record." : "Search or filter to begin an investigation."}</p>{hasFilters && <Button variant="ghost" size="sm" onClick={clearFilters}><X className="size-4" />Clear filters</Button>}</div>
+        </div>
+
+        {loading ? <div className="audit-loading"><Skeleton className="h-12 w-full" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div> : filtered.length ? <>
+          <div className="audit-desktop-workspace">
+            <div className="audit-table-scroll" tabIndex={0} role="region" aria-label="Decision audit events. Scroll horizontally to see all columns on smaller screens.">
+              <Table className="audit-investigation-table" aria-labelledby="activity-log-title"><caption className="sr-only">Persisted automated, human, and governance activity in Kora.</caption><TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Activity</TableHead><TableHead>Case</TableHead><TableHead>Actor</TableHead><TableHead><span className="sr-only">Inspect event</span></TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => {
+                const Icon = scopeIcon(item);
+                const isSelected = selectedItem?.id === item.id;
+                return <TableRow key={item.id} className={cn("audit-event-row", isSelected && "is-selected")} aria-selected={isSelected}><TableCell className="audit-time-cell"><time dateTime={item.created_at}><strong>{timeLabel(item.created_at)}</strong><small>{dateLabel(item.created_at)}</small></time></TableCell><TableCell className="audit-activity-cell"><span className={cn("audit-event-icon", `audit-event-icon-${eventScope(item)}`)}><Icon aria-hidden="true" /></span><span><strong>{eventName(item)}</strong><small>{decisionSummary(item)}</small></span></TableCell><TableCell className="audit-case-cell"><strong>{item.case_id}</strong><small>{item.customer_id}</small></TableCell><TableCell className="audit-actor-cell">{displayActor(item)}</TableCell><TableCell className="audit-inspect-cell"><Button variant="quiet" size="sm" onClick={() => setSelectedEventId(item.id)} aria-label={`Inspect ${eventName(item)} for ${item.case_id}`}>{isSelected ? "Selected" : "Inspect"}<ChevronRight aria-hidden="true" /></Button></TableCell></TableRow>;
+              })}</TableBody></Table>
+            </div>
+            <aside className="audit-inspector" aria-labelledby="audit-inspector-title">
+              {selectedItem && <><header><div><p className="section-label">Event details</p><h3 id="audit-inspector-title">{eventName(selectedItem)}</h3></div><span className={cn("audit-event-icon", `audit-event-icon-${eventScope(selectedItem)}`)}>{(() => { const Icon = scopeIcon(selectedItem); return <Icon aria-hidden="true" />; })()}</span></header><p className="audit-inspector-summary">{decisionSummary(selectedItem)}</p><dl><div><dt>Case</dt><dd>{selectedItem.case_id}<small>{selectedItem.customer_id}</small></dd></div><div><dt>Actor</dt><dd>{displayActor(selectedItem)}</dd></div><div><dt>Recorded</dt><dd>{dateLabel(selectedItem.created_at)}<small>{timeLabel(selectedItem.created_at)}</small></dd></div><div><dt>Technical source</dt><dd>{selectedItem.model || "Human action"}</dd></div></dl><div className="audit-reason"><span>Evidence or reason</span><p>{reason(selectedItem)}</p></div></>}
+            </aside>
+          </div>
+          <div className="audit-mobile-list">{filtered.map((item) => { const Icon = scopeIcon(item); return <article key={item.id} className="audit-mobile-record"><div className="audit-record-heading"><span className={cn("audit-event-icon", `audit-event-icon-${eventScope(item)}`)}><Icon aria-hidden="true" /></span><div><span>{eventName(item)}</span><strong>{decisionSummary(item)}</strong></div><time dateTime={item.created_at}>{dateLabel(item.created_at)}<small>{timeLabel(item.created_at)}</small></time></div><dl><div><dt>Case</dt><dd>{item.case_id}</dd></div><div><dt>Actor</dt><dd>{displayActor(item)}</dd></div></dl><details className="audit-expansion"><summary>Inspect event <ChevronDown className="size-4" /></summary><div><p><strong>Evidence or reason:</strong> {reason(item)}</p><p><strong>Customer:</strong> {item.customer_id}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></article>; })}</div>
+        </> : <div className="audit-empty"><Search aria-hidden="true" /><strong>{items.length ? "No events match this investigation" : "No persisted decisions yet"}</strong><p>{items.length ? "Adjust the search, activity scope, date, event type, or actor to broaden the result." : "Run live triage to create the first auditable decision record."}</p>{hasFilters && <Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>}</div>}
+      </section>
     </div>
   );
 }
 
 function DashboardApp() {
   const [signedIn, setSignedIn] = useState(true);
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || "light");
   const [tickets, setTickets] = useState(seedTickets);
   const [activeView, setActiveView] = useState("queue");
   const [selectedId, setSelectedId] = useState(seedTickets.find((ticket) => ticket.urgency === "critical")?.id || seedTickets[0].id);
@@ -854,6 +975,12 @@ function DashboardApp() {
   const linkedCaseHandled = useRef(false);
   const activeFilters = { review: false, high: false, sla: false, unassigned: false, assignee: "all", channel: "all", urgency: "all", team: "all", ...filters };
   const governance = { integrations, policies };
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#211d21" : "#fafaf9");
+    try { window.localStorage.setItem("kora_theme", theme); } catch { /* Theme persistence is optional. */ }
+  }, [theme]);
 
   const refreshAudit = async () => {
     setAuditLoading(true);
@@ -1306,12 +1433,12 @@ function DashboardApp() {
     <div className="workspace-app bg-canvas text-ink">
       <a href="#main-content" className="skip-link">Skip to content</a>
       <Rail activeView={activeView} onView={setActiveView} open={railOpen} onClose={() => setRailOpen(false)} user={currentUser} />
-      <div className="workspace-shell lg:pl-[232px]">
-        <Header activeView={activeView} onMenu={() => setRailOpen(true)} backend={backend} tickets={tickets} onOpenTicket={openTicketFromNotification} onView={setActiveView} user={currentUser} onLogout={() => { window.localStorage.removeItem("kora_token"); setSignedIn(false); }} />
+      <div className="workspace-shell lg:pl-[268px]">
+        <Header activeView={activeView} onMenu={() => setRailOpen(true)} backend={backend} tickets={tickets} onOpenTicket={openTicketFromNotification} onView={setActiveView} user={currentUser} theme={theme} onThemeToggle={() => setTheme((value) => value === "dark" ? "light" : "dark")} onLogout={() => { window.localStorage.removeItem("kora_token"); setSignedIn(false); }} />
         {backend.alert && <div className="system-alert"><WifiOff />AI service unavailable. Agents can continue with manual classification and review.</div>}
         <main id="main-content" tabIndex={-1} className={cn("workspace-main", activeView === "queue" ? "workspace-main-queue" : "workspace-main-scroll")}>
-          {activeView === "queue" && <div className={cn("queue-view", mobileCaseOpen && "mobile-case-open")}><MetricsStrip tickets={tickets} automation={automation} governance={governance} onFilter={filterQueueByPriority} /><div className="workspace-grid"><QueuePane tickets={visibleTickets} selectedId={selectedId} onSelect={selectTicket} loading={loading} query={query} onQuery={setQuery} filters={activeFilters} onFilters={setFilters} selectedIds={selectedIds} onToggle={toggleSelected} onSelectAll={selectAll} onBulkApprove={bulkApprove} onBulkRoute={bulkRoute} bulkLoading={bulkLoading} automation={automation} governance={governance} scrollRef={queueScrollRef} />{selectedTicket ? <CaseDetail ticket={selectedTicket} onApprove={approve} onEscalate={escalate} onRunAI={runLiveAI} onFeedback={saveFeedback} onResolve={resolve} onAssign={assignCase} onAddNote={saveCaseNote} onVerifyTransaction={verifyTransaction} onManualAssessment={saveHumanAssessment} onBack={returnToQueue} onSensitiveReveal={auditSensitiveReveal} aiLoading={aiLoadingId === selectedTicket.id} actionLoading={actionLoadingId === selectedTicket.id} backend={backend} automation={automation} governance={governance} memoryItems={memoryItems} memoryLoading={memoryLoading} conversation={conversation} notes={caseNotes} conversationLoading={conversationLoading} currentUser={currentUser} /> : <EmptyCaseDetail />}</div></div>}
-          {activeView === "insights" && <Suspense fallback={<div className="view-padding"><Skeleton className="h-[420px] w-full" /></div>}><InsightsView tickets={tickets} evaluationSummary={evaluationSummary} /></Suspense>}
+          {activeView === "queue" && <div className={cn("queue-view", mobileCaseOpen && "mobile-case-open")}><MetricsStrip tickets={tickets} filters={activeFilters} onFilter={filterQueueByPriority} /><div className="workspace-grid"><QueuePane tickets={visibleTickets} selectedId={selectedId} onSelect={selectTicket} loading={loading} query={query} onQuery={setQuery} filters={activeFilters} onFilters={setFilters} selectedIds={selectedIds} onToggle={toggleSelected} onSelectAll={selectAll} onBulkApprove={bulkApprove} onBulkRoute={bulkRoute} bulkLoading={bulkLoading} automation={automation} governance={governance} scrollRef={queueScrollRef} />{selectedTicket ? <CaseDetail ticket={selectedTicket} onApprove={approve} onEscalate={escalate} onRunAI={runLiveAI} onFeedback={saveFeedback} onResolve={resolve} onAssign={assignCase} onAddNote={saveCaseNote} onVerifyTransaction={verifyTransaction} onManualAssessment={saveHumanAssessment} onBack={returnToQueue} onSensitiveReveal={auditSensitiveReveal} aiLoading={aiLoadingId === selectedTicket.id} actionLoading={actionLoadingId === selectedTicket.id} backend={backend} automation={automation} governance={governance} memoryItems={memoryItems} memoryLoading={memoryLoading} conversation={conversation} notes={caseNotes} conversationLoading={conversationLoading} currentUser={currentUser} /> : <EmptyCaseDetail />}</div></div>}
+          {activeView === "insights" && <InsightsView tickets={tickets} evaluationSummary={evaluationSummary} />}
           {activeView === "proof" && <HistoricalEvaluationView runs={proofRuns} onRun={runProof} running={proofRunning} backend={backend} />}
           {activeView === "audit" && <DecisionAuditView items={auditItems} loading={auditLoading} />}
           {activeView === "team" && <TeamView tickets={tickets} onFilterQueue={filterQueueByAssignee} />}
@@ -1319,11 +1446,12 @@ function DashboardApp() {
         </main>
       </div>
       {railOpen && <button className="fixed inset-0 z-30 bg-ink/20 lg:hidden" onClick={() => setRailOpen(false)} aria-label="Close navigation overlay" />}
-      <div role="status" aria-live="polite" className={cn("fixed bottom-5 right-3 z-50 flex max-w-[calc(100vw-24px)] items-center gap-2 border border-ink bg-ink px-4 py-3 text-[13px] font-bold text-paper shadow-precision transition-all sm:right-5", toast ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")}><CheckCircle2 className="size-4 shrink-0 text-accent" />{toast}</div>
+      <div role="status" aria-live="polite" className={cn("fixed bottom-5 right-3 z-50 flex max-w-[calc(100vw-24px)] items-center gap-2 rounded-[14px] border border-line-strong bg-paper px-4 py-3 text-[13px] font-bold text-ink shadow-precision transition-all sm:right-5", toast ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")}><CheckCircle2 className="size-4 shrink-0 text-accent-strong" />{toast}</div>
     </div>
   );
 }
 
 export default function App() {
+  if (window.location.pathname === "/" && !new URLSearchParams(window.location.search).has("case")) return <LandingPage />;
   return <DashboardApp />;
 }

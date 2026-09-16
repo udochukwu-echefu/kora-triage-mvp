@@ -1006,7 +1006,7 @@ async def jobs(
 async def run_job_once(_: Principal = Depends(manager_principal)) -> dict:
     if not worker:
         raise HTTPException(status_code=503, detail="Workflow worker is not initialized.")
-    return {"processed": await worker.process_one()}
+    return {"processed": await worker.process_one(tenant_id=_.tenant_id)}
 
 
 @app.post("/api/webhooks/inbound", status_code=202)
@@ -1086,6 +1086,25 @@ def _record_delivery_update(
     status_value: str,
     payload: dict,
 ) -> dict:
+    # The deduplication marker must commit with the message, case, and audit.
+    with database.transaction():
+        return _apply_delivery_update(
+            event_id=event_id,
+            provider=provider,
+            provider_message_id=provider_message_id,
+            status_value=status_value,
+            payload=payload,
+        )
+
+
+def _apply_delivery_update(
+    *,
+    event_id: str,
+    provider: str,
+    provider_message_id: str,
+    status_value: str,
+    payload: dict,
+) -> dict:
     if not database.record_webhook(
         event_id=event_id,
         tenant_id=settings.default_tenant_id,
@@ -1095,7 +1114,7 @@ def _record_delivery_update(
     ):
         return {"duplicate": True}
     case_id = database.update_message_delivery(
-        provider_message_id, status_value, settings.default_tenant_id
+        provider_message_id, status_value, settings.default_tenant_id, provider=provider
     )
     if case_id:
         lifecycle_state = (
@@ -1103,18 +1122,31 @@ def _record_delivery_update(
             if status_value in {"delivered", "read"}
             else "failed" if status_value == "failed" else "sent"
         )
-        database.set_lifecycle(
-            case_id,
-            lifecycle_state,
-            tenant_id=settings.default_tenant_id,
+        lifecycle = database.lifecycle(case_id, settings.default_tenant_id) or {}
+        conversation = database.conversation(case_id, settings.default_tenant_id)
+        latest_message = conversation[-1] if conversation else {}
+        # A receipt updates its message, but cannot undo a human decision or a
+        # newer reply/send in the same conversation.
+        updates_case = (
+            lifecycle.get("state") not in {"resolved", "reopened", "replied", "review_required"}
+            and latest_message.get("direction") == "outbound"
+            and latest_message.get("provider") == provider
+            and latest_message.get("provider_message_id") == provider_message_id
         )
+        if updates_case:
+            database.set_lifecycle(
+                case_id,
+                lifecycle_state,
+                tenant_id=settings.default_tenant_id,
+            )
         ticket = database.support_ticket(case_id, settings.default_tenant_id)
         if ticket:
-            database.update_support_ticket_fields(
-                case_id,
-                {"status": lifecycle_state.capitalize()},
-                settings.default_tenant_id,
-            )
+            if updates_case:
+                database.update_support_ticket_fields(
+                    case_id,
+                    {"status": lifecycle_state.capitalize()},
+                    settings.default_tenant_id,
+                )
             database.add_audit(
                 case_id=case_id,
                 customer_id=ticket["customerId"],

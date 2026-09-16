@@ -31,7 +31,6 @@
     "react": "latest",
     "react-day-picker": "^10.0.1",
     "react-dom": "latest",
-    "recharts": "latest",
     "tailwind-merge": "latest",
     "tailwindcss": "latest"
   },

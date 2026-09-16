@@ -390,7 +390,8 @@ class Database:
         with self.connect() as connection:
             row = connection.execute(
                 "SELECT customer_id, decision_json, guardrail_json FROM audit_log "
-                "WHERE tenant_id = ? AND case_id = ? AND event_type = 'triage' ORDER BY created_at DESC LIMIT 1",
+                "WHERE tenant_id = ? AND case_id = ? AND event_type IN ('triage', 'manual_triage') "
+                "ORDER BY created_at DESC, id DESC LIMIT 1",
                 (tenant_id, case_id),
             ).fetchone()
         if not row:
@@ -622,26 +623,34 @@ class Database:
         return [dict(row) for row in rows]
 
     def find_case_by_thread(
-        self, external_thread_id: str, tenant_id: str = "tenant-demo"
+        self, external_thread_id: str, tenant_id: str, *,
+        customer_id: str, channel: str, provider: str,
     ) -> str | None:
         with self.connect() as connection:
             row = connection.execute(
-                "SELECT case_id FROM case_lifecycle WHERE tenant_id = ? AND external_thread_id = ? "
-                "ORDER BY updated_at DESC LIMIT 1",
-                (tenant_id, external_thread_id),
+                "SELECT c.case_id FROM case_lifecycle c JOIN support_ticket t "
+                "ON t.case_id = c.case_id AND t.tenant_id = c.tenant_id "
+                "WHERE c.tenant_id = ? AND c.external_thread_id = ? "
+                "AND t.customer_id = ? AND t.channel = ? AND c.provider = ? "
+                "ORDER BY c.updated_at DESC LIMIT 1",
+                (tenant_id, external_thread_id, customer_id, channel, provider),
             ).fetchone()
         return row["case_id"] if row else None
 
     def find_case_by_message_reference(
-        self, reference: str, tenant_id: str = "tenant-demo"
+        self, reference: str, tenant_id: str, *,
+        customer_id: str, channel: str, provider: str,
     ) -> str | None:
         """Resolve an email reply to either an inbound or Kora outbound Message-ID."""
         with self.connect() as connection:
             row = connection.execute(
-                "SELECT case_id FROM support_message WHERE tenant_id = ? "
-                "AND (provider_message_id = ? OR external_thread_id = ?) "
-                "ORDER BY created_at DESC LIMIT 1",
-                (tenant_id, reference, reference),
+                "SELECT m.case_id FROM support_message m JOIN support_ticket t "
+                "ON t.case_id = m.case_id AND t.tenant_id = m.tenant_id "
+                "WHERE m.tenant_id = ? "
+                "AND (m.provider_message_id = ? OR m.external_thread_id = ?) "
+                "AND t.customer_id = ? AND t.channel = ? AND m.provider = ? "
+                "ORDER BY m.created_at DESC LIMIT 1",
+                (tenant_id, reference, reference, customer_id, channel, provider),
             ).fetchone()
         return row["case_id"] if row else None
 
@@ -733,13 +742,13 @@ class Database:
             ).fetchone()
         return int(row["id"])
 
-    def claim_job(self) -> dict | None:
+    def claim_job(self, tenant_id: str | None = None) -> dict | None:
         now = datetime.now(UTC).isoformat()
         with self.connect() as connection:
             row = connection.execute(
                 "SELECT * FROM delivery_job WHERE status IN ('queued', 'retry') "
-                "AND run_after <= ? ORDER BY id ASC LIMIT 1",
-                (now,),
+                "AND run_after <= ? AND (? IS NULL OR tenant_id = ?) ORDER BY id ASC LIMIT 1",
+                (now, tenant_id, tenant_id),
             ).fetchone()
             if not row:
                 return None
@@ -806,17 +815,31 @@ class Database:
         return {status: int(counts.get(status, 0)) for status in ("queued", "running", "retry", "succeeded", "dead")}
 
     def update_message_delivery(
-        self, provider_message_id: str, status: str, tenant_id: str = "tenant-demo"
+        self, provider_message_id: str, status: str, tenant_id: str, *, provider: str,
     ) -> str | None:
         with self.connect() as connection:
             row = connection.execute(
-                "SELECT case_id FROM support_message WHERE tenant_id = ? AND provider_message_id = ?",
-                (tenant_id, provider_message_id),
+                "SELECT id, case_id, delivery_status FROM support_message "
+                "WHERE tenant_id = ? AND provider_message_id = ? AND provider = ? "
+                "AND direction = 'outbound'",
+                (tenant_id, provider_message_id, provider),
             ).fetchone()
             if row:
+                # Providers can retry or deliver callbacks out of order.
+                progress = {"sent": 1, "delivered": 2, "read": 3}
+                previous = row["delivery_status"]
+                if (
+                    previous == status
+                    or (previous == "failed" and status == "sent")
+                    or (
+                        previous in progress and status in progress
+                        and progress[status] < progress[previous]
+                    )
+                ):
+                    return None
                 connection.execute(
-                    "UPDATE support_message SET delivery_status = ? WHERE tenant_id = ? AND provider_message_id = ?",
-                    (status, tenant_id, provider_message_id),
+                    "UPDATE support_message SET delivery_status = ? WHERE id = ?",
+                    (status, row["id"]),
                 )
         return row["case_id"] if row else None
 

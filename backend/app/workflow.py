@@ -70,10 +70,16 @@ class SupportWorkflow:
         customer_id = customer_id_for_contact(message.sender)
         existing_case = None
         if message.external_thread_id:
+            # A thread reference alone is not authority to join another customer.
+            thread_scope = {
+                "customer_id": customer_id,
+                "channel": message.channel,
+                "provider": provider,
+            }
             existing_case = self.database.find_case_by_thread(
-                message.external_thread_id, tenant_id
+                message.external_thread_id, tenant_id, **thread_scope
             ) or self.database.find_case_by_message_reference(
-                message.external_thread_id, tenant_id
+                message.external_thread_id, tenant_id, **thread_scope
             )
         case_id = existing_case or self.database.next_case_id(tenant_id)
         now = datetime.now(UTC)
@@ -186,8 +192,8 @@ class WorkflowWorker:
     def stop(self) -> None:
         self._stopped = True
 
-    async def process_one(self) -> bool:
-        job = self.database.claim_job()
+    async def process_one(self, tenant_id: str | None = None) -> bool:
+        job = self.database.claim_job(tenant_id)
         if not job:
             return False
         try:

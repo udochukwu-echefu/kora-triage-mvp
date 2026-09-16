@@ -10,7 +10,7 @@ export function SelectTrigger({ className, children, ...props }) {
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        "inline-flex h-11 min-w-[128px] items-center justify-between gap-3 rounded-[7px] border border-line-strong bg-paper px-3 text-[14px] font-semibold text-ink shadow-[0_1px_0_oklch(18%_0.02_115_/_0.04)] outline-none transition-[border-color,background-color,box-shadow] hover:border-ink/55 focus-visible:border-ink focus-visible:ring-2 focus-visible:ring-ring data-[placeholder]:text-ink-faint disabled:pointer-events-none disabled:opacity-45",
+        "group inline-flex h-11 min-w-[128px] items-center justify-between gap-3 rounded-[12px] border border-line-strong bg-paper px-3 text-[0.9375rem] font-semibold text-ink shadow-[0_1px_0_oklch(22%_0.018_68_/_0.05)] outline-none transition-[border-color,background-color,box-shadow] hover:border-ink/55 focus-visible:border-ink focus-visible:ring-2 focus-visible:ring-ring data-[placeholder]:text-ink-faint disabled:pointer-events-none disabled:opacity-45",
         className
       )}
       {...props}
@@ -30,7 +30,7 @@ export function SelectContent({ className, children, position = "popper", sideOf
         position={position}
         sideOffset={sideOffset}
         className={cn(
-          "z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-[9px] border border-line-strong bg-paper text-ink shadow-float data-[state=closed]:animate-out data-[state=open]:animate-in",
+          "z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-[16px] border border-line-strong bg-paper text-ink shadow-float data-[state=closed]:animate-out data-[state=open]:animate-in",
           className
         )}
         {...props}
@@ -48,14 +48,14 @@ export function SelectContent({ className, children, position = "popper", sideOf
 }
 
 export function SelectLabel({ className, ...props }) {
-  return <SelectPrimitive.Label className={cn("px-2.5 py-2 text-[11px] font-bold uppercase tracking-[0.07em] text-ink-faint", className)} {...props} />;
+  return <SelectPrimitive.Label className={cn("px-2.5 py-2 text-xs font-bold uppercase tracking-[0.07em] text-ink-faint", className)} {...props} />;
 }
 
 export function SelectItem({ className, children, ...props }) {
   return (
     <SelectPrimitive.Item
       className={cn(
-        "relative flex min-h-11 cursor-default select-none items-center rounded-[6px] py-2.5 pl-9 pr-3 text-[14px] font-semibold outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-selected data-[disabled]:opacity-40",
+        "relative flex min-h-11 cursor-default select-none items-center rounded-[10px] py-2.5 pl-9 pr-3 text-[14px] font-semibold outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-selected data-[disabled]:opacity-40",
         className
       )}
       {...props}
