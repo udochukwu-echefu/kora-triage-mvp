@@ -1,165 +1,93 @@
-# Kora Operations
+# Kora
 
 [![CI](https://github.com/udochukwu-echefu/kora-triage-mvp/actions/workflows/ci.yml/badge.svg)](https://github.com/udochukwu-echefu/kora-triage-mvp/actions/workflows/ci.yml)
 
-A support-triage portfolio demonstration for a Nigerian fintech or e-commerce SMB. The public deployment uses synthetic data, demo authentication, and simulated delivery; it is not connected to a real support operation.
+Kora is a support inbox for a Nigerian fintech or online store. Customers write in on WhatsApp or email, often in Pidgin or a mix of Pidgin and English, and Kora works out what they need before an agent even opens the message: what the problem is, how urgent it is, which team should handle it, and a first draft of the reply. An agent still reads every draft and decides what gets sent.
 
-**Evidence:** [architecture](docs/architecture.md) · [evaluation methodology](docs/evaluation.md) · [11-case live smoke report](evidence/live-smoke-report.json) · [failure examples](docs/failure-examples.md) · [limitations](docs/limitations.md) · [test summary](evidence/test-summary.json)
+It's a portfolio project. The public demo runs on made-up customers with a demo login, and sending is simulated, so nothing there reaches a real person.
 
-Latest verification: 255 backend tests and 17 frontend tests pass, lint is clean, and `npm audit` reports no vulnerabilities.
+**Live demo:** [kora-web-production-3c3c.up.railway.app](https://kora-web-production-3c3c.up.railway.app) (the workspace itself is at `/app`)
 
-The 11-case Groq smoke run from 8 August 2026 (11/11, 13.669-second median latency) was produced while the deterministic policy rules still contained phrases copied from the evaluation set. Treat that score as superseded. The rules have since been generalised, a test now blocks copied phrases, and reports show model-only accuracy next to model-plus-policy accuracy. Re-run `npm run evaluate:smoke` to refresh the evidence. These are demo measurements, not customer-traffic evidence.
+## What happens to a message
 
-## Product capabilities
+1. A message arrives through the Postmark (email) or WhatsApp Cloud API webhook and is saved immediately, so nothing gets lost if the AI is down.
+2. Before anything leaves the server, phone numbers, email addresses, card and account numbers, BVNs and the customer's name are stripped out. The last four digits of cards and accounts are kept so agents can still match transactions.
+3. A model hosted on Groq (`openai/gpt-oss-20b` by default) classifies the message, pulls out amounts and references, and drafts a reply based on any company policies you've approved.
+4. Plain Python rules have the final say on routing and urgency. Fraud always goes to the Fraud team, and a failed payroll payment over ₦100,000 is always critical, whatever the model thinks.
+5. Guardrails hand the case to a person when something looks risky: a fraud report, an angry customer, low confidence, a threat to involve a lawyer or the press, or a draft that asks for a PIN or promises a refund nobody has approved.
+6. An agent reviews the case, edits the reply if needed, and approves, escalates or resolves it. Every step is written to an audit log.
 
-- Synthetic WhatsApp and email messages in English and Nigerian Pidgin
-- Intent, urgency, and sentiment classification
-- Extraction of amounts, transaction IDs, order IDs, account suffixes, and card suffixes
-- Confidence, hostility, and critical-risk escalation rules
-- Customer memory for repeat conversations
-- Editable response drafts with explicit human approval
-- Operational metrics, routing insights, and a decision audit trail
-- 18 realistic processed model snapshots for a useful first-run queue
-- Confidence-threshold automation controls with mandatory-review boundaries
-- One authoritative, persisted automation-eligibility decision shared by delivery, queue metrics, and bulk actions
-- SLA-at-risk flags, queue filters, and guarded bulk actions
-- Loading, empty, filtered, and responsive interface states
-- Idempotent inbound email and WhatsApp webhook adapters
-- Persistent conversation threads with resolved and reopened case states
-- Durable background triage and delivery jobs with retries and dead-letter status
-- Human correction capture and a release regression gate
-- Tenant-scoped bearer-token roles for non-demo deployments
-- A separate 100-case gold evaluation set covering six operational domains,
-  English, Nigerian Pidgin, mixed language, WhatsApp, and email
-- Tenant-scoped approved policy knowledge with versioned citations in each decision
-- Silent Proof Mode for evaluating up to 100 historical cases without delivery
-- Read-only Paystack verification restricted to references extracted from the case
-- Collision-checked case claiming, named ownership, internal notes, and mentions
-- Explicit degraded mode with AI retries and a human-owned manual assessment path
+Auto-approval exists, but it's off by default and deliberately hard to switch on. A case only qualifies if an approved policy matches it, a delivery channel is connected, every guardrail passes and the model is highly confident.
 
-## Frontend stack
+If you add a Paystack key, agents can check a transaction's status from inside the case. It's read-only: Kora can't move money.
 
-- React and Vite, with the landing page and each workspace view code-split
-- Tailwind CSS with custom OKLCH theme tokens
-- shadcn-style local components customized for this product
-- Radix UI dropdowns, selects, popovers, and tooltips
-- CSS-only operational charts
-- Lucide React icons
-- Self-hosted Elms Sans Variable font through Fontsource
-- Vitest for shared ticket logic and ESLint for the React code
+## Things to try in the demo
 
-## Run locally
+- Open a fraud case. It can't be approved until a specialist or manager signs off with a note explaining why.
+- Edit a draft so it asks the customer for their OTP, then try to approve it. The server refuses.
+- Click **Reveal sensitive details** on a case, then look at the audit trail. The reveal is logged.
+- Upload a CSV of past conversations under **Historical evaluation** to see how Kora would have handled them, without contacting anyone. The public demo takes up to 12 cases per run.
+
+## Running it locally
+
+You'll need Node 22 and Python 3.12 or newer.
 
 ```bash
 npm install
 npm run backend:setup
 cp backend/.env.example backend/.env
-npm test
-npm run lint
+```
+
+Add a Groq API key to `backend/.env`, then start everything:
+
+```bash
 npm run dev
 ```
 
-Add a real `GROQ_API_KEY` to `backend/.env`, then open `http://localhost:4173`.
-`npm run dev` starts both FastAPI on port 8000 and Vite on port 4173. Live triage remains blocked if the Groq key is missing or invalid; there is no local classification fallback.
+The API runs on port 8000 and the app on [localhost:4173](http://localhost:4173). Without a Groq key the app still works, but new messages have to be classified by hand. There's no offline model.
 
-## Production build
-
-```bash
-npm run build
-npm run preview
-```
-
-In demo mode the first run seeds 18 labelled, fully processed model snapshots into SQLite so the queue, routing mix, memory, and audit views are immediately useful. Their labels come from the snapshots themselves, so accuracy metrics only count live Groq results. Human corrections update the displayed classification but never count as model accuracy. These records are clearly labelled **Model snapshot** in the interface and can be refreshed through Groq with **Refresh with live AI**. There is no local classification fallback for new live requests. Before a Groq request, the backend redacts phone numbers, email addresses, full account numbers, customer names, and identifiers embedded in customer notes. Fraud, critical urgency, hostile sentiment, low confidence, unsafe credential requests, invented external actions, and unverified completion claims are handled by deterministic guardrails.
-
-The dashboard calculates intent-and-urgency accuracy for live model results against labelled conversations and estimates handling-time savings against the configurable `KORA_MANUAL_BASELINE_MINUTES` baseline. The Audit tab loads persisted model and human decisions from SQLite and can export them as CSV. Customer memory is deduplicated by customer and case before it is supplied to Groq.
-
-Run the live 100-case model benchmark separately from the demonstration queue:
+To run the tests (pytest for the backend, Vitest for the frontend) and the linters:
 
 ```bash
-npm run evaluate
+npm test
+npm run lint
 ```
 
-The report is written to the ignored
-`backend/data/evaluation-report.json`. It scores intent, urgency, route,
-required entities, unexpected entities, language groups, and operational
-domains without adding benchmark records to the agent queue.
-If Groq's daily quota interrupts a run, repeat the underlying command with
-`--resume`; successful predictions are loaded from the adjacent ignored
-checkpoint instead of being requested again.
+## How well does it work?
 
-Run the fixed 11-case live smoke set with latency and token tracking:
+Not proven yet. There's a set of 100 synthetic complaints (English, Pidgin and mixed, across six kinds of problem), and `npm run evaluate` scores the model against it. `npm run evaluate:smoke` runs a quicker 11-case version and saves the result to `evidence/live-smoke-report.json`.
 
-```bash
-npm run evaluate:smoke
-```
+The last smoke run, in August 2026, scored 11 out of 11, but I don't trust that number. At the time, the routing rules contained phrases copied straight from the test set, so part of the score came from the rules recognising the questions rather than understanding them. The rules have since been rewritten, a test now fails if that happens again, and reports show the model's own accuracy separately from the rules. The benchmark needs re-running before any number is worth quoting.
 
-The smoke report is written to the public `evidence/live-smoke-report.json` file. It uses synthetic cases and must not be interpreted as customer-traffic validation.
+Even then, the test set is small, synthetic and labelled by one person. [docs/limitations.md](docs/limitations.md) covers the rest.
 
-Kora uses a hybrid decision path: Groq performs language understanding,
-classification, entity extraction, and response drafting. A deterministic
-operational-policy layer then normalises specialist routing, SLA urgency, and
-reference placement. Every policy override is persisted with the audit decision.
+## Deploying
 
-Confidence automation can queue eligible responses for delivery. `KORA_CHANNEL_MODE=demo` safely records an outbound message without contacting a customer. Switch to `live` only after configuring Postmark or WhatsApp Cloud API credentials and their signed webhooks.
+Kora is set up for Railway: one Docker container serves both the API and the built frontend, and every push to `main` deploys automatically.
 
-Approved policies are managed in **Settings**. Matching is tenant-scoped and
-transparent: Kora includes the matched title, version, excerpt, and source URL
-in the decision record. Customer-supplied notes are never trusted as policy.
-
-**Proof mode** runs historical JSON or CSV cases through the same live model,
-policy, and guardrail path under a proof tenant isolated per run, in the
-background with bounded concurrency. It reports how many cases the active
-thresholds *would* auto-approve (simulated, never acted on). Proof cases are
-not inserted into the support queue and no delivery job is created.
-
-Set `PAYSTACK_SECRET_KEY` to enable read-only transaction verification. Kora
-only verifies the reference already extracted and audited for the selected
-case. The connector does not initialize payments, transfers, reversals, or
-refunds.
-
-If Groq is unavailable, inbound webhooks still create durable cases. Failed
-triage jobs retry with backoff and then move to a visible manual-review state.
-Agents can record a human assessment and response draft without model output;
-manual assessments never auto-approve.
-
-See `backend/README.md` for API endpoints and the production safety boundary.
-
-## Deploy to Railway
-
-The production container builds the Vite frontend and serves it from FastAPI on
-the same domain.
-
-Set these Railway variables:
+For the public demo, these variables are enough:
 
 ```dotenv
-GROQ_API_KEY=your_live_groq_key
-GROQ_MODEL=openai/gpt-oss-20b
+GROQ_API_KEY=your-groq-key
 KORA_DATABASE_PATH=/data/kora.db
-KORA_MANUAL_BASELINE_MINUTES=12
-KORA_AUTH_MODE=demo
-KORA_CHANNEL_MODE=demo
-KORA_WEBHOOK_TOKEN=replace-with-a-long-random-value
 KORA_TRUST_PROXY_HEADERS=true
 ```
 
-The container runs as an unprivileged user; its entrypoint takes ownership of
-the mounted database directory first. For a non-demo deployment set
-`KORA_AUTH_MODE=required`, issue tokens with `python -m app.manage
-create-token` (see `backend/README.md`), and leave `KORA_SEED_DEMO_DATA` unset.
+Everything else defaults to demo mode. A few things worth knowing:
 
-Attach a Railway volume at `/data` before relying on customer memory or the
-audit trail. Keep the service at one replica while it uses SQLite. Configure the
-health check path as `/api/health`.
+- Attach a volume at `/data`, or the database is wiped on every deploy. Stick to one replica, since it's SQLite.
+- In demo mode every visitor is a manager, so there's a per-visitor rate limit and a daily cap on AI calls to protect your Groq quota.
+- For real use, set `KORA_AUTH_MODE=required` and give each teammate a login token with `python -m app.manage create-token`. The details are in [backend/README.md](backend/README.md).
+- To actually send replies, add your Postmark or WhatsApp credentials (listed in [backend/.env.example](backend/.env.example)), set `KORA_CHANNEL_MODE=live` and set `KORA_WEBHOOK_TOKEN`. Webhooks are refused until a secret is configured.
 
-For live channels, add the provider variables listed in `backend/.env.example`,
-change `KORA_CHANNEL_MODE` to `live`, and register the Railway webhook URLs.
-Keep the public portfolio deployment in demo auth unless it is placed behind a
-real identity provider or provisioned bearer tokens.
+## Built with
 
-Postmark webhook endpoints support HTTP Basic authentication because Postmark
-cannot be assumed to attach Kora's custom header. Set
-`POSTMARK_WEBHOOK_USERNAME` and `POSTMARK_WEBHOOK_PASSWORD`, then include those
-credentials in the inbound and delivery webhook URLs. WhatsApp webhook
-signatures are verified against the exact raw request body using
-`WHATSAPP_APP_SECRET`. Live channel mode fails closed when the relevant
-webhook secret is absent.
+FastAPI, Pydantic and SQLite on the backend; React, Vite, Tailwind CSS and Radix UI on the frontend; Groq for the model.
+
+## More detail
+
+- [Architecture](docs/architecture.md)
+- [How the evaluation works](docs/evaluation.md)
+- [Examples of where it gets things wrong](docs/failure-examples.md)
+- [Limitations](docs/limitations.md)
+- [API endpoints and safety rules](backend/README.md)
