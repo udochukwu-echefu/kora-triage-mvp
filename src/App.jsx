@@ -20,9 +20,9 @@ import {
 } from "./components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
-import { Input } from "./components/ui/input";
-import { ScrollArea } from "./components/ui/scroll-area";
-import { Switch } from "./components/ui/switch";
+import { DecisionTrace } from "./components/cases/DecisionTrace";
+import { OperationalEmptyState } from "./components/states/OperationalEmptyState";
+import { SystemStatusBar } from "./components/system/SystemStatusBar";
 import {
   addCaseNote, createPolicy, createProofRun, getAutomationSettings, getBackendAudit,
   getBackendHealth, getCases, getCustomerMemory, getCaseConversation, getCurrentUser,
@@ -32,7 +32,6 @@ import {
   verifyPaystackTransaction
 } from "./api";
 const InsightsView = lazy(() => import("./components/InsightsView"));
-const AuditDatePicker = lazy(() => import("./components/AuditDatePicker"));
 
 const seedTickets = messages.map((message) => ({
   ...message,
@@ -78,6 +77,30 @@ const urgencyOptions = ["low", "medium", "high", "critical"];
 
 const riskyIntents = new Set(["Fraud report", "Duplicate debit", "Payment failed", "Transfer pending", "Account access"]);
 const riskyRoutes = new Set(["Fraud", "Transfers", "Billing", "Account Support", "Compliance"]);
+
+function operatingMode(backend, jobs = { counts: {} }) {
+  if (backend.state === "checking" || backend.state === "recovering") return {
+    state: "recovering",
+    title: "Kora is reconnecting",
+    description: "The queue remains readable while Kora checks the decision service. Actions that need the server may be delayed."
+  };
+  if (backend.state === "offline") return {
+    state: "offline",
+    title: "Kora is offline",
+    description: "Loaded conversations remain readable, but classification, assignment and delivery changes cannot be saved. Restore the connection, then retry."
+  };
+  if (backend.configured && (backend.alert || (jobs?.counts?.dead || 0) > 0)) return {
+    state: "degraded",
+    title: "Kora is operating with delivery issues",
+    description: `${jobs?.counts?.dead || 0} deliveries need attention. Classification and manual review remain available; inspect failed delivery records before retrying.`
+  };
+  if (!backend.configured) return {
+    state: "manual",
+    title: "Kora is in manual mode",
+    description: "New conversations require agent classification. Existing cases and delivery controls remain available."
+  };
+  return { state: "connected", title: "AI-assisted triage is available", description: "Agents remain responsible for every customer outcome." };
+}
 
 function automationDecision(ticket, automation, governance = {}) {
   if (!isProcessed(ticket)) return { state: "pending", reason: "Classification pending." };
@@ -151,8 +174,8 @@ function Rail({ activeView, onView, open, onClose, user }) {
   const role = (user?.role || "support_manager").replaceAll("_", " ");
   const initials = displayName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   return (
-    <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-[232px] flex-col border-r border-white/10 bg-shell px-3 py-4 text-paper transition-transform lg:translate-x-0", open ? "translate-x-0 shadow-precision" : "-translate-x-full")} aria-label="Main navigation">
-      <button onClick={onClose} className="absolute right-2 top-2 grid size-11 place-items-center rounded-[6px] text-paper/60 hover:bg-white/10 hover:text-paper lg:hidden" aria-label="Close navigation"><X className="size-4" /></button>
+    <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-[232px] flex-col border-r border-white/10 bg-shell px-3 py-4 text-paper transition-transform xl:translate-x-0", open ? "translate-x-0 shadow-precision" : "-translate-x-full")} aria-label="Main navigation">
+      <button onClick={onClose} className="absolute right-2 top-2 grid size-11 place-items-center rounded-[6px] text-paper/70 hover:bg-white/10 hover:text-paper xl:hidden" aria-label="Close navigation"><X className="size-4" /></button>
       <div className="flex h-12 items-center gap-3 px-2" aria-label="Kora"><span className="grid size-9 place-items-center rounded-[8px] bg-accent text-xs font-semibold text-accent-ink">KR</span><span><strong className="block text-[14px] font-semibold tracking-[-0.03em]">Kora</strong><small className="mt-1 block text-[10px] font-medium text-paper/45">Support operations</small></span></div>
       <TooltipProvider>
         <nav className="mt-8 flex flex-1 flex-col gap-1.5">
@@ -185,7 +208,7 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
     team: { full: "Team coverage", compact: "Team" },
     settings: { full: "Confidence automation", compact: "Automation" }
   };
-  const engineLabel = backend.state === "checking"
+  const engineLabel = backend.state === "checking" || backend.state === "recovering"
     ? "Checking API"
     : backend.configured
       ? "AI service available"
@@ -203,11 +226,11 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
   return (
     <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-line bg-paper px-4 sm:px-7 lg:px-8">
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <Button variant="outline" size="icon" className="lg:hidden" onClick={onMenu} aria-label="Open navigation"><Menu className="size-4" /></Button>
+        <Button variant="outline" size="icon" className="xl:hidden" onClick={onMenu} aria-label="Open navigation"><Menu className="size-4" /></Button>
         <h1 className="truncate text-[18px] font-semibold tracking-[-0.035em] sm:text-[20px]"><span className="sm:hidden">{titles[activeView].compact}</span><span className="hidden sm:inline">{titles[activeView].full}</span></h1>
       </div>
       <div className="flex items-center gap-2">
-        <div className="hidden items-center gap-2 border border-line px-3 py-2 text-[10px] font-bold text-ink-muted sm:flex"><span className={cn("size-2 rounded-full", backend.configured ? "bg-accent" : "bg-line-strong")} />{engineLabel}</div>
+        <div className="hidden items-center gap-2 rounded-[7px] border border-line px-3 py-2 text-[12px] font-semibold text-ink-muted min-[801px]:flex"><span className={cn("size-2 rounded-full", backend.configured ? "bg-accent-strong" : "bg-line-strong")} />{engineLabel}</div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="icon" aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`} className="relative">
@@ -267,7 +290,7 @@ function Header({ activeView, onMenu, backend, tickets, onOpenTicket, onView, on
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56" sideOffset={8}>
-            <div className="px-3 py-3"><p className="text-[14px] font-extrabold">{displayName}</p><p className="mt-1 capitalize text-[12px] font-semibold text-ink-muted">{role}</p></div>
+            <div className="px-2.5 py-2.5"><p className="text-[11px] font-extrabold">{displayName}</p><p className="mt-1 capitalize text-[9px] font-semibold text-ink-faint">{role}</p></div>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Workspace</DropdownMenuLabel>
             <DropdownMenuItem onSelect={() => onView("queue")}><Inbox className="size-3.5" />Support queue</DropdownMenuItem>
@@ -295,10 +318,12 @@ function SignedOutView({ onReturn }) {
   );
 }
 
-function MetricsStrip({ tickets, automation, governance, onFilter }) {
+function MetricsStrip({ tickets, automation, governance, backend, onFilter }) {
   const open = tickets.filter((ticket) => !["resolved", "sent", "delivered"].includes(ticket.lifecycle?.state));
+  const manualMode = !backend.configured;
+  const evaluatedOpen = open.filter(isProcessed);
   const metrics = [
-    { key: "review", label: "Needs human review", value: open.filter((ticket) => policyState(ticket, automation, governance) === "mandatory").length, meta: `Open conversations, right now` },
+    { key: "review", label: "Needs human review", value: open.filter((ticket) => manualMode ? !isProcessed(ticket) || policyState(ticket, automation, governance) === "mandatory" : policyState(ticket, automation, governance) === "mandatory").length, meta: manualMode ? `${open.filter((ticket) => !isProcessed(ticket)).length} await manual classification · ${evaluatedOpen.length} evaluated` : `${evaluatedOpen.length} evaluated open conversations` },
     { key: "sla", label: "SLA breached or at risk", value: open.filter((ticket) => slaState(ticket)).length, meta: "Open conversations, current SLA clock" },
     { key: "unassigned", label: "Unassigned conversations", value: open.filter((ticket) => !ticket.lifecycle?.assigned_to && !ticket.assignee && ticket.status !== "Assigned").length, meta: `Of ${open.length} open conversations` }
   ];
@@ -317,12 +342,10 @@ function QueueLoading() {
   return <div aria-label="Loading tickets" className="divide-y divide-line">{Array.from({ length: 5 }).map((_, index) => <div key={index} className="space-y-3 p-5"><div className="flex justify-between"><Skeleton className="h-3 w-28" /><Skeleton className="h-3 w-8" /></div><Skeleton className="h-4 w-44" /><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-2/3" /></div>)}</div>;
 }
 
-function EmptyQueue({ onReset }) {
-  return (
-    <div className="grid min-h-[430px] place-items-center px-8 text-center">
-      <div className="max-w-[260px]"><div className="mx-auto grid size-12 place-items-center border border-line-strong bg-muted-surface"><Inbox className="size-5" /></div><h3 className="mt-5 text-[15px] font-extrabold tracking-[-0.03em]">No tickets match this view</h3><p className="mt-2 text-[11px] leading-5 text-ink-muted">Clear the filters to return to the full support queue.</p><Button onClick={onReset} variant="outline" size="sm" className="mt-5">Reset filters</Button></div>
-    </div>
-  );
+function EmptyQueue({ onReset, filtered }) {
+  return filtered
+    ? <OperationalEmptyState type="no-results" title="No conversations match this view" description="The queue is unchanged. Clear the current search and filters to see all open conversations." actionLabel="Clear filters" onAction={onReset} compact className="queue-empty-state" />
+    : <OperationalEmptyState type="completed" title="The queue is clear" description="No open conversations need attention. New customer messages will appear here when they arrive." compact className="queue-empty-state" />;
 }
 
 function TicketRow({ ticket, selected, checked, onSelect, onCheck, automation = { enabled: false, auto_approve_threshold: 95, mandatory_review_threshold: 70 }, governance }) {
@@ -343,11 +366,12 @@ function TicketRow({ ticket, selected, checked, onSelect, onCheck, automation = 
   );
 }
 
-function QueuePane({ tickets, selectedId, onSelect, loading, query, onQuery, filters, onFilters, selectedIds = [], onToggle, onSelectAll, onBulkApprove, onBulkRoute, bulkLoading, automation = { enabled: false, auto_approve_threshold: 95, mandatory_review_threshold: 70 }, governance, scrollRef }) {
+function QueuePane({ tickets, selectedId, selectedTicket, onSelect, loading, query, onQuery, filters, onFilters, selectedIds = [], onToggle, onSelectAll, onBulkApprove, onBulkRoute, bulkLoading, automation = { enabled: false, auto_approve_threshold: 95, mandatory_review_threshold: 70 }, governance, scrollRef }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const reset = () => { onQuery(""); onFilters({ review: false, high: false, sla: false, unassigned: false, channel: "all", urgency: "all", team: "all" }); };
   const allSelected = tickets.length > 0 && tickets.every((ticket) => selectedIds.includes(ticket.id));
   const selectedLowRisk = tickets.filter((ticket) => selectedIds.includes(ticket.id) && lowRisk(ticket, automation, governance)).length;
+  const hasFilters = Boolean(query || filters.review || filters.high || filters.sla || filters.unassigned || filters.assignee !== "all" || filters.channel !== "all" || filters.urgency !== "all" || filters.team !== "all");
   const chip = (label, value, options, key) => (
     <Select value={value} onValueChange={(nextValue) => onFilters({ ...filters, [key]: nextValue })}>
       <SelectTrigger aria-label={`Filter by ${label.toLowerCase()}`} className={cn("h-9 min-w-[118px] bg-paper", value !== "all" && "border-ink bg-selected")}>
@@ -373,12 +397,13 @@ function QueuePane({ tickets, selectedId, onSelect, loading, query, onQuery, fil
           {(query || filters.review || filters.high || filters.sla || filters.unassigned || filters.channel !== "all" || filters.urgency !== "all" || filters.team !== "all") && <Button variant="ghost" size="sm" onClick={reset}><X className="size-3" />Clear</Button>}
         </div>
         <div className="active-filter-chips md:hidden">{filters.review && <button onClick={() => onFilters({ ...filters, review: false })}>Needs review <X /></button>}{filters.sla && <button onClick={() => onFilters({ ...filters, sla: false })}>SLA risk <X /></button>}{filters.unassigned && <button onClick={() => onFilters({ ...filters, unassigned: false })}>Unassigned <X /></button>}</div>
+        {!loading && selectedTicket && !tickets.some((ticket) => ticket.id === selectedId) && <button type="button" className="pinned-case-context" onClick={() => onSelect(selectedId)}><span>Selected case outside this view</span><strong>{selectedTicket.id} · {selectedTicket.customer.name}</strong><ArrowRight /></button>}
       </div>
       <div className="flex min-h-10 items-center justify-between border-b border-line bg-muted-surface px-4 py-2">
         <button type="button" onClick={() => onSelectAll(tickets.map((ticket) => ticket.id), !allSelected)} className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[0.08em] text-ink-muted">{allSelected ? <SquareCheckBig className="size-4 text-ink" /> : <Square className="size-4" />}{selectedIds.length ? `${selectedIds.length} selected` : "Select all"}</button>
-        {selectedIds.length > 0 && <div className="flex items-center gap-1.5"><Button size="sm" variant="outline" className="h-7 px-2 text-[9px]" disabled={!selectedLowRisk || bulkLoading} onClick={onBulkApprove}><Check className="size-3" />Approve {selectedLowRisk || ""}</Button><DropdownMenu><DropdownMenuTrigger asChild><Button size="sm" className="h-7 px-2 text-[9px]" disabled={bulkLoading}><Route className="size-3" />Route<ChevronDown className="size-3" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{teamOptions.map((team) => <DropdownMenuItem key={team} onSelect={() => onBulkRoute(team)}>{team}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu></div>}
+        {selectedIds.length > 0 && <div className="flex items-center gap-1.5"><Button size="sm" variant="outline" className="h-7 px-2 text-[9px]" disabled={!selectedLowRisk || bulkLoading} title={!selectedLowRisk ? "Selected cases require individual human review before approval." : undefined} onClick={onBulkApprove}><Check className="size-3" />Approve {selectedLowRisk || ""}</Button><DropdownMenu><DropdownMenuTrigger asChild><Button size="sm" className="h-7 px-2 text-[9px]" disabled={bulkLoading || !selectedLowRisk} title={!selectedLowRisk ? "Selected cases require individual human review before routing." : undefined}><Route className="size-3" />Route<ChevronDown className="size-3" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{teamOptions.map((team) => <DropdownMenuItem key={team} onSelect={() => onBulkRoute(team)}>{team}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu></div>}
       </div>
-      <div className="queue-scroll" ref={scrollRef}>{loading ? <QueueLoading /> : tickets.length ? tickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} selected={selectedId === ticket.id} checked={selectedIds.includes(ticket.id)} onSelect={onSelect} onCheck={onToggle} automation={automation} governance={governance} />) : <EmptyQueue onReset={reset} />}</div>
+      <div className="queue-scroll" ref={scrollRef}>{loading ? <QueueLoading /> : tickets.length ? tickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} selected={selectedId === ticket.id} checked={selectedIds.includes(ticket.id)} onSelect={onSelect} onCheck={onToggle} automation={automation} governance={governance} />) : <EmptyQueue onReset={reset} filtered={hasFilters} />}</div>
     </section>
   );
 }
@@ -520,7 +545,6 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
   const [correction, setCorrection] = useState({ intent: "", urgency: "", route: "", reason: "" });
   const [noteDraft, setNoteDraft] = useState("");
   const [revealed, setRevealed] = useState(false);
-  const conversationViewportRef = useRef(null);
   useEffect(() => { setDraft(ticket.response || ""); setCorrection({ intent: "", urgency: "", route: "", reason: "" }); setNoteDraft(""); setRevealed(false); }, [ticket.id, ticket.response]);
   const decision = automationDecision(ticket, automation, governance);
   const delivery = ticket.channel === "email" ? governance.integrations?.email : governance.integrations?.whatsapp;
@@ -529,14 +553,6 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
   const entities = Object.entries(ticket.entities || {}).filter(([, value]) => value);
   const labels = { amount: "Amount", transactionId: "Transaction ID", orderId: "Order ID", account: "Account", card: "Card" };
   const reveal = () => { setRevealed(true); onSensitiveReveal?.(ticket); };
-  const scrollConversationToLatest = () => window.requestAnimationFrame(() => {
-    const viewport = conversationViewportRef.current;
-    if (viewport) viewport.scrollTo({
-      top: viewport.scrollHeight,
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
-    });
-  });
-  useEffect(() => { if (!conversationLoading && conversation.length) scrollConversationToLatest(); }, [conversationLoading, conversation.length, ticket.id]);
   return (
     <article className="detail-scroll case-workspace" aria-labelledby="ticket-title">
       <header className="case-header">
@@ -550,15 +566,17 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
           <blockquote>“{revealed ? ticket.message : maskSensitive(ticket.message)}”</blockquote>
           {!revealed && ticket.message !== maskSensitive(ticket.message) && <Button variant="ghost" onClick={reveal}><Eye className="size-4" />Reveal sensitive details</Button>}
           {entities.length > 0 && <div className="entity-list">{entities.map(([key, value]) => <EntityTag key={key} label={labels[key]} value={value} />)}</div>}
-          {(conversationLoading || conversation.length > 0) && <details className="case-disclosure" onToggle={(event) => event.currentTarget.open && scrollConversationToLatest()}><summary><span><MessagesSquare />Conversation history</span><span>{conversation.length} messages <ChevronDown /></span></summary><ScrollArea className="conversation-scroll" viewportRef={conversationViewportRef}><div className="disclosure-content">{conversationLoading ? <Skeleton className="h-20 w-full" /> : conversation.map((message) => <div key={message.id} className={cn("conversation-message", message.direction === "outbound" && "conversation-message-outbound")}><span>{message.direction === "outbound" ? "Agent response" : "Customer"} · {message.delivery_status}</span><p>{message.body}</p></div>)}</div></ScrollArea></details>}
+          {(conversationLoading || conversation.length > 0) && <details className="case-disclosure"><summary><span><MessagesSquare />Conversation history</span><span>{conversation.length} messages <ChevronDown /></span></summary><div className="disclosure-content">{conversationLoading ? <Skeleton className="h-20 w-full" /> : conversation.map((message) => <div key={message.id} className={cn("conversation-message", message.direction === "outbound" && "conversation-message-outbound")}><span>{message.direction === "outbound" ? "Agent response" : "Customer"} · {message.delivery_status}</span><p>{message.body}</p></div>)}</div></details>}
         </section>
         <div className="case-decision-grid">
           <section className="human-decision" aria-labelledby="agent-decision-title">
             <h3 id="agent-decision-title">Agent decision</h3>
-            <div className={cn("authoritative-state", decision.state === "auto" && "authoritative-state-safe")}><ShieldAlert /><div><strong>{decision.reason}</strong><p>The agent remains accountable for the next action.</p></div></div>
+            <div className={cn("authoritative-state", decision.state === "auto" && "authoritative-state-safe")}>{decision.state === "auto" ? <ShieldCheck /> : <ShieldAlert />}<div><strong>{decision.reason}</strong><p>The agent remains accountable for the next action.</p></div></div>
             {!isProcessed(ticket) && !backend.configured && <div className="classification-fields"><label>Issue<Select value={correction.intent || undefined} onValueChange={(value) => setCorrection({ ...correction, intent: value })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{intentOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label><label>Urgency<Select value={correction.urgency || undefined} onValueChange={(value) => setCorrection({ ...correction, urgency: value })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{urgencyOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label><label>Team<Select value={correction.route || undefined} onValueChange={(value) => setCorrection({ ...correction, route: value })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{teamOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label></div>}
             <label className="draft-field"><span>Response draft</span><textarea value={draft} onChange={(event) => setDraft(event.target.value)} disabled={!isProcessed(ticket) && backend.configured} placeholder={!backend.configured ? "Write a human-owned response while the AI service is unavailable." : "A suggested draft will appear here."} rows={9} /></label>
             <div className="draft-meta"><span>{draft.length} characters</span><span>{ticket.customer.notes.some((note) => note.includes("Pidgin")) ? "Pidgin aware" : "English"}</span></div>
+            {ticket.lifecycle?.state === "queued" && <div className="delivery-state delivery-state-pending"><Clock3 /><div><strong>Pending delivery</strong><p>The response is queued. Kora will record the channel outcome when delivery completes.</p></div></div>}
+            {ticket.lifecycle?.state === "failed" && <div className="delivery-state delivery-state-failed"><CircleAlert /><div><strong>Delivery failed</strong><p>The customer has not received this response. Check the connected channel, then retry delivery.</p></div></div>}
             <div className="case-primary-actions">
               {!isProcessed(ticket) ? backend.configured ? <Button disabled><LoaderCircle className={cn("size-4", aiLoading && "animate-spin")} />{aiLoading ? "Classifying conversation" : "Classification required"}</Button> : <Button disabled={actionLoading || !correction.intent || !correction.urgency || !correction.route || draft.trim().length < 2} onClick={() => onManualAssessment(ticket, { ...correction, response: draft })}><UserRoundCheck className="size-4" />Save assessment</Button> : ["sent", "delivered", "replied"].includes(ticket.lifecycle?.state) ? <Button disabled={actionLoading} onClick={() => onResolve(ticket.id)}><CheckCircle2 className="size-4" />Mark resolved</Button> : <><Button disabled={actionLoading} onClick={() => onEscalate(ticket.id, draft)} variant="outline"><Users className="size-4" />Assign to specialist</Button><Button disabled={actionLoading || !draft.trim()} onClick={() => onApprove(ticket.id, draft)}>{actionLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}{canSend ? "Approve and send" : "Approve draft"}</Button></>}
               {!canSend && isProcessed(ticket) && <p>Approval is recorded in Kora. Nothing is sent until {ticket.channel === "email" ? "email" : "WhatsApp"} is connected.</p>}
@@ -568,6 +586,7 @@ function CaseDetail({ ticket, onApprove, onEscalate, onRunAI, onFeedback, onReso
           <section className="suggestion-panel" aria-labelledby="suggestion-title">
             <div className="suggestion-heading"><div><h3 id="suggestion-title">Suggested classification</h3><p>Supporting information for the agent</p></div>{backend.configured && ticket.source !== "groq" && <Button onClick={() => onRunAI(ticket)} disabled={aiLoading} variant="ghost">{aiLoading ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}Refresh</Button>}</div>
             <dl className="suggestion-summary">{[["Issue", ticket.intent], ["Urgency", ticket.urgency], ["Team", ticket.route], ["Confidence", isProcessed(ticket) ? `${Math.round(ticket.confidence * 100)}%` : "Pending"]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+            <DecisionTrace ticket={ticket} automation={automation} decision={decision} delivery={delivery} />
             {isProcessed(ticket) && <details className="case-disclosure"><summary><span><Wrench />Edit classification</span><ChevronDown /></summary><div className="disclosure-content classification-fields"><label>Issue<Select value={correction.intent || "__keep__"} onValueChange={(value) => setCorrection({ ...correction, intent: value === "__keep__" ? "" : value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__keep__">Keep {ticket.intent}</SelectItem>{intentOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label><label>Urgency<Select value={correction.urgency || "__keep__"} onValueChange={(value) => setCorrection({ ...correction, urgency: value === "__keep__" ? "" : value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__keep__">Keep {ticket.urgency}</SelectItem>{urgencyOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label><label>Team<Select value={correction.route || "__keep__"} onValueChange={(value) => setCorrection({ ...correction, route: value === "__keep__" ? "" : value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__keep__">Keep {ticket.route}</SelectItem>{teamOptions.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></label><label>Reason<input value={correction.reason} onChange={(event) => setCorrection({ ...correction, reason: event.target.value })} placeholder="Why is this changing?" /></label><Button variant="outline" disabled={actionLoading || (!correction.intent && !correction.urgency && !correction.route)} onClick={() => onFeedback(ticket.id, correction)}>Save classification</Button></div></details>}
             <details className="case-disclosure"><summary><span><ShieldCheck />Evidence and policy</span><ChevronDown /></summary><div className="disclosure-content evidence-content"><h4>Evidence used</h4>{ticket.evidence.length ? <ol>{ticket.evidence.map((item) => <li key={item}>{item}</li>)}</ol> : <p>No evidence available yet.</p>}<h4>Approved policy sources</h4>{ticket.policyCitations?.length ? ticket.policyCitations.map((citation) => <div key={citation.id}><strong>{citation.title} v{citation.version}</strong><p>{citation.excerpt}</p></div>) : <p>No approved policy matched. The draft must remain human-reviewed.</p>}</div></details>
             <details className="case-disclosure"><summary><span><Database />Customer history</span><span>{ticket.memoryUsed ? "Used" : "Not used"} <ChevronDown /></span></summary><div className="disclosure-content memory-content">{memoryLoading ? <Skeleton className="h-16 w-full" /> : memoryItems.length ? memoryItems.slice(0, 2).map((memory) => <div key={`${memory.case_id}-${memory.created_at}`}><strong>{memory.case_id}</strong><time>{formatDate(memory.created_at)}</time><p>{memory.summary}</p></div>) : <p>No previous case history is available.</p>}</div></details>
@@ -587,11 +606,16 @@ function TeamView({ tickets, onFilterQueue }) {
     { name: "Nneka Eze", role: "Risk specialist", teams: ["Fraud", "Compliance"], initials: "NE", status: "Offline", capacity: 4 },
     { name: "Bola Martins", role: "Customer operations", teams: ["Logistics", "Account Support"], initials: "BM", status: "Online", capacity: 7 }
   ];
+  const records = members.map((member) => {
+    const assigned = tickets.filter((ticket) => ticket.lifecycle?.assigned_to === member.name || ticket.assignee === member.name).length;
+    return { ...member, assigned, overloaded: assigned > member.capacity };
+  });
   return (
-    <div className="view-padding">
-      <div className="page-heading"><p>Primary ownership, current capacity and backup coverage for the open queue.</p></div>
-      <div className="table-surface"><Table><TableHeader><TableRow><TableHead>Team member</TableHead><TableHead>Primary coverage</TableHead><TableHead>Assigned</TableHead><TableHead>Capacity</TableHead><TableHead>Availability</TableHead><TableHead><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader><TableBody>{members.map((member) => { const assigned = tickets.filter((ticket) => ticket.lifecycle?.assigned_to === member.name || ticket.assignee === member.name).length; const overloaded = assigned > member.capacity; return <TableRow key={member.name}><TableCell><span className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-muted-surface text-[11px] font-semibold">{member.initials}</span><span><strong className="block">{member.name}</strong><small>{member.role}</small></span></span></TableCell><TableCell>{member.teams.join(", ")}</TableCell><TableCell><strong>{assigned}</strong> primary</TableCell><TableCell><span className={overloaded ? "text-red-700 font-semibold" : ""}>{assigned} of {member.capacity}{overloaded ? " · Overloaded" : ""}</span></TableCell><TableCell><Badge variant={member.status === "Online" ? "accent" : member.status === "Busy" ? "outline" : "neutral"}>{member.status}</Badge></TableCell><TableCell><Button variant="ghost" onClick={() => onFilterQueue(member.name)}>View queue</Button></TableCell></TableRow>; })}</TableBody></Table></div>
-      <p className="mt-4 text-[13px] text-ink-muted">Coverage can overlap, but assignment counts only primary ownership. Total open conversations: {tickets.filter((ticket) => ticket.lifecycle?.state !== "resolved").length}.</p>
+    <div className="view-padding team-page">
+      <div className="page-heading"><h2>Team coverage</h2><p>Primary ownership, current capacity and backup coverage for the open queue.</p></div>
+      <div className="table-surface team-table"><Table><caption className="sr-only">Team availability, primary coverage and current assigned workload</caption><TableHeader><TableRow><TableHead scope="col">Team member</TableHead><TableHead scope="col">Primary coverage</TableHead><TableHead scope="col">Assigned</TableHead><TableHead scope="col">Capacity</TableHead><TableHead scope="col">Availability</TableHead><TableHead scope="col"><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader><TableBody>{records.map((member) => <TableRow key={member.name}><TableCell><span className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-muted-surface text-[12px] font-semibold">{member.initials}</span><span><strong className="block">{member.name}</strong><small>{member.role}</small></span></span></TableCell><TableCell>{member.teams.join(", ")}</TableCell><TableCell><strong>{member.assigned}</strong> primary</TableCell><TableCell><span className={member.overloaded ? "text-danger font-semibold" : ""}>{member.assigned} of {member.capacity}{member.overloaded ? " · Overloaded" : ""}</span></TableCell><TableCell><Badge variant={member.status === "Online" ? "accent" : member.status === "Busy" ? "outline" : "neutral"}>{member.status}</Badge></TableCell><TableCell><Button variant="ghost" onClick={() => onFilterQueue(member.name)}>View queue</Button></TableCell></TableRow>)}</TableBody></Table></div>
+      <div className="team-mobile-list">{records.map((member) => <article className="team-mobile-record" key={member.name}><header><span className="team-avatar">{member.initials}</span><div><h3>{member.name}</h3><p>{member.role}</p></div><Badge variant={member.status === "Online" ? "accent" : member.status === "Busy" ? "outline" : "neutral"}>{member.status}</Badge></header><dl><div><dt>Primary coverage</dt><dd>{member.teams.join(", ")}</dd></div><div><dt>Current load</dt><dd>{member.assigned} of {member.capacity}{member.overloaded ? " · Overloaded" : ""}</dd></div></dl><Button variant="outline" onClick={() => onFilterQueue(member.name)}>View assigned queue</Button></article>)}</div>
+      <p className="team-scope-note">Coverage can overlap, but assignment counts only primary ownership. Total open conversations: {tickets.filter((ticket) => ticket.lifecycle?.state !== "resolved").length}.</p>
     </div>
   );
 }
@@ -675,24 +699,87 @@ function HistoricalEvaluationView({ runs, onRun, running, backend }) {
   return <div className="view-padding max-w-6xl"><div className="page-heading"><h2>Historical evaluation</h2><p>Upload labelled past conversations to measure routing quality and review requirements without contacting customers.</p></div>{!backend.configured && <div className="system-notice"><WifiOff /><div><strong>AI service unavailable</strong><p>Historical evaluation needs the AI service. The support queue remains available for manual work.</p></div></div>}<div className="evaluation-layout"><section className="evaluation-input"><label>Evaluation name<input value={name} onChange={(event) => setName(event.target.value)} /></label><div className="upload-zone"><ClipboardCheck /><strong>Upload historical cases</strong><p>CSV or JSON, up to 100 cases. Expected labels are optional.</p><label className="upload-button">Choose file<input type="file" accept=".csv,.json,application/json,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) file.text().then((text) => load(text, file.name)); }} /></label><div><Button variant="ghost" onClick={downloadTemplate}><Download />Download template</Button><Button variant="ghost" onClick={() => load(proofSample, "sample.json")}>Use sample data</Button></div></div>{error && <p className="validation-error"><CircleAlert />{error}</p>}{cases.length > 0 && <div className="validation-preview"><strong>{cases.length} cases ready</strong><span>Estimated processing time: {Math.max(1, Math.ceil(cases.length * 2 / 60))} minute{cases.length > 30 ? "s" : ""}</span><div>{cases.slice(0, 4).map((item, index) => <p key={`${item.case_id}-${index}`}><span>{item.case_id}</span><span>{item.channel}</span><span>{item.message}</span><CheckCircle2 /></p>)}</div></div>}<details className="case-disclosure"><summary><span>Advanced: raw JSON editor</span><ChevronDown /></summary><div className="disclosure-content"><textarea value={source} onChange={(event) => setSource(event.target.value)} rows={12} spellCheck={false} /><Button variant="outline" onClick={() => load(source, "advanced.json")}>Validate JSON</Button></div></details><Button onClick={() => onRun({ name, cases })} disabled={running || !backend.configured || !cases.length}>{running ? <LoaderCircle className="animate-spin" /> : <ClipboardCheck />}{running ? "Running evaluation" : "Run historical evaluation"}</Button></section><section className="evaluation-results"><h3>Latest result</h3>{latest ? <><p className="result-date">{formatDate(latest.created_at)} · {latest.report.completed || latest.report.total} cases</p><div className="result-list">{[["Cases processed", latest.report.completed], ["Intent accuracy", latest.report.intent_accuracy == null ? "Not labelled" : `${Math.round(latest.report.intent_accuracy * 100)}%`], ["Urgency accuracy", latest.report.urgency_accuracy == null ? "Not labelled" : `${Math.round(latest.report.urgency_accuracy * 100)}%`], ["Routing accuracy", latest.report.routing_accuracy == null ? "Not labelled" : `${Math.round(latest.report.routing_accuracy * 100)}%`], ["Guardrail failures", latest.report.guardrail_failures || 0], ["Cases requiring review", latest.report.human_review_cases], ["Eligible under safety policy", latest.report.safe_automation_candidates]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><Button variant="outline"><Download />Download error set</Button></> : <div className="compact-empty"><p>No evaluation has been run. Upload labelled cases to measure routing accuracy and review requirements.</p></div>}</section></div></div>;
 }
 
-function SettingsView({ automation, onChange, onSave, saving, tickets, integrations, jobs, policies, onCreatePolicy, onTogglePolicy, policySaving }) {
+function HistoricalEvaluationView2({ runs, onRun, running, backend }) {
+  const [name, setName] = useState("Historical support evaluation");
+  const [cases, setCases] = useState([]);
+  const [source, setSource] = useState(proofSample);
+  const [error, setError] = useState("");
+  const latest = runs[0];
+  const parseRows = (text, filename = "") => {
+    if (!filename.toLowerCase().endsWith(".csv")) return JSON.parse(text);
+    const lines = text.trim().split(/\r?\n/).filter(Boolean);
+    const headers = lines.shift().split(",").map((value) => value.trim());
+    return lines.map((line, index) => {
+      const values = line.split(",").map((value) => value.trim());
+      const row = Object.fromEntries(headers.map((header, column) => [header, values[column] || ""]));
+      return { case_id: row.case_id || `ROW-${index + 2}`, channel: row.channel || "email", language: row.language || "english", message: row.message, customer_name: row.customer_name || "Historical customer", expected: row.expected_intent || row.expected_urgency || row.expected_route ? { intent: row.expected_intent || undefined, urgency: row.expected_urgency || undefined, route: row.expected_route || undefined } : undefined };
+    });
+  };
+  const load = (text, filename) => {
+    try {
+      const items = parseRows(text, filename);
+      if (!Array.isArray(items) || !items.length) throw new Error("Add at least one historical case.");
+      const invalid = items.map((item, index) => (!item.message || !["email", "whatsapp"].includes(item.channel) ? index + 1 : null)).filter(Boolean);
+      if (invalid.length) throw new Error(`Rows ${invalid.join(", ")} need a message and a valid email or whatsapp channel.`);
+      if (items.length > 100) throw new Error("Use 100 cases or fewer per evaluation.");
+      setCases(items);
+      setSource(JSON.stringify(items, null, 2));
+      setError("");
+    } catch (loadError) {
+      setCases([]);
+      setError(loadError.message);
+    }
+  };
+  const downloadTemplate = () => {
+    const csv = "case_id,channel,language,message,customer_name,expected_intent,expected_urgency,expected_route\nHIST-001,whatsapp,pidgin,Abeg my transfer never reach since morning,Chidinma Okeke,Transfer pending,high,Transfers";
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    link.download = "kora-evaluation-template.csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+  return (
+    <div className="view-padding evaluation-page">
+      <div className="page-heading"><h2>Historical evaluation</h2><p>Upload labelled past conversations to measure routing quality and review requirements without contacting customers.</p></div>
+      {!backend.configured && <SystemStatusBar state="manual" title="Evaluation is unavailable in manual mode" description="Historical evaluation needs the AI service. The support queue and agent-owned classification remain available." />}
+      <div className="evaluation-layout">
+        <section className="evaluation-input" aria-labelledby="evaluation-input-title">
+          <h3 id="evaluation-input-title" className="sr-only">Evaluation input</h3>
+          <label>Evaluation name<input value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <div className="upload-zone"><ClipboardCheck /><strong>Upload historical cases</strong><p>CSV or JSON, up to 100 cases. Expected labels are optional.</p><label className="upload-button">Choose file<input type="file" accept=".csv,.json,application/json,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) file.text().then((text) => load(text, file.name)); }} /></label><div><Button variant="ghost" onClick={downloadTemplate}><Download />Download template</Button><Button variant="ghost" onClick={() => load(proofSample, "sample.json")}>Use labelled sample</Button></div></div>
+          {error && <div className="validation-error" role="alert"><CircleAlert /><span><strong>File could not be added.</strong> {error}</span></div>}
+          {cases.length > 0 && <div className="validation-preview"><strong>{cases.length} cases ready</strong><span>Labelled sample data. Estimated processing time: {Math.max(1, Math.ceil(cases.length * 2 / 60))} minute{cases.length > 30 ? "s" : ""}.</span><div>{cases.slice(0, 4).map((item, index) => <p key={`${item.case_id}-${index}`}><span>{item.case_id}</span><span>{item.channel}</span><span>{item.message}</span><CheckCircle2 /></p>)}</div></div>}
+          <details className="case-disclosure"><summary><span>Advanced: raw JSON editor</span><ChevronDown /></summary><div className="disclosure-content"><textarea value={source} onChange={(event) => setSource(event.target.value)} rows={12} spellCheck={false} /><Button variant="outline" onClick={() => load(source, "raw.json")}>Validate JSON</Button></div></details>
+          <Button onClick={() => onRun({ name, cases })} disabled={running || !backend.configured || !cases.length}>{running ? <LoaderCircle className="size-4 animate-spin" /> : <ClipboardCheck className="size-4" />}{running ? "Evaluating cases" : "Run historical evaluation"}</Button>
+        </section>
+        <section className="evaluation-results" aria-labelledby="evaluation-results-title">
+          <h3 id="evaluation-results-title">Latest result</h3>
+          {latest ? <><time className="result-date">{formatDate(latest.created_at)}</time><div className="result-list">{[["Cases completed", latest.report.completed], ["Label accuracy", latest.report.label_accuracy == null ? "Unavailable: no labels" : `${Math.round(latest.report.label_accuracy * 100)}%`], ["Safe automation candidates", latest.report.safe_automation_candidates], ["Human review cases", latest.report.human_review_cases], ["Guardrail failures", latest.report.guardrail_failures]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><p className="evaluation-recommendation"><strong>{latest.report.readiness_score}/100 readiness.</strong> {latest.report.recommendation}</p></> : <OperationalEmptyState type="first-use" title="No evaluation has been run" description="Upload labelled historical conversations to measure routing accuracy and review requirements. Nothing in an evaluation can be delivered to customers." actionLabel="Use labelled sample" onAction={() => load(proofSample, "sample.json")} compact />}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function SettingsView({ automation, onChange, onSave, saving, tickets, integrations, jobs, policies, onCreatePolicy, onTogglePolicy, policySaving, backend }) {
   const [policyDraft, setPolicyDraft] = useState({ title: "", version: "1.0", source_url: "", content: "" });
   const [confirmSave, setConfirmSave] = useState(false);
   const hasActivePolicies = policies.some((policy) => policy.active);
   const hasDelivery = integrations?.mode === "live" && (integrations?.email?.configured || integrations?.whatsapp?.configured);
   const governanceReady = hasActivePolicies && hasDelivery;
-  const autoCount = tickets.filter((ticket) => policyState(ticket, automation, { integrations }) === "auto").length;
-  const reviewCount = tickets.filter((ticket) => policyState(ticket, automation, { integrations }) === "mandatory").length;
+  const autoCount = backend?.configured ? tickets.filter((ticket) => policyState(ticket, automation, { integrations }) === "auto").length : 0;
+  const reviewCount = backend?.configured ? tickets.filter((ticket) => policyState(ticket, automation, { integrations }) === "mandatory").length : tickets.length;
   const assignedCount = tickets.filter((ticket) => ticket.lifecycle?.assigned_to || ticket.assignee).length;
   return (
     <div className="view-padding max-w-5xl">
       <div className="page-heading"><p>Confidence is only one requirement. Policy, verification, guardrails, information completeness and delivery must also pass.</p></div>
+      {!backend?.configured && <SystemStatusBar state={backend?.state === "offline" ? "offline" : "manual"} title={backend?.state === "offline" ? "Automation controls are offline" : "Automation cannot run in manual mode"} description={backend?.state === "offline" ? "Current settings are shown, but changes cannot be saved until the workspace reconnects." : "Agents can continue classifying and reviewing cases. Reconnect AI before enabling automated decisions."} />}
       <div className="grid gap-5 lg:grid-cols-[1.2fr_.8fr]">
         <Card className="p-6">
-          <div className="flex items-start justify-between gap-5 border-b border-line pb-5"><div><div className="flex items-center gap-2"><Zap className="size-4" /><h3 className="text-[14px] font-semibold">Auto-approve eligible drafts</h3></div><p className="mt-2 max-w-lg text-[13px] leading-5 text-ink-muted">Eligible cases need an approved policy match, no guardrail, required verification, complete information, connected delivery and sufficient confidence.</p></div><Switch aria-label="Enable auto-approval" checked={automation.enabled} disabled={!governanceReady && !automation.enabled} onCheckedChange={(enabled) => onChange({ ...automation, enabled })} /></div>
+          <div className="flex items-start justify-between gap-5 border-b border-line pb-5"><div><div className="flex items-center gap-2"><Zap className="size-4" /><h3 className="text-[14px] font-semibold">Auto-approve eligible drafts</h3></div><p className="mt-2 max-w-lg text-[13px] leading-5 text-ink-muted">Eligible cases need an approved policy match, no guardrail, required verification, complete information, connected delivery and sufficient confidence.</p></div><button type="button" role="switch" aria-label="Enable auto-approval" aria-checked={automation.enabled} disabled={!governanceReady && !automation.enabled} onClick={() => onChange({ ...automation, enabled: !automation.enabled })} className={cn("safe-switch", automation.enabled && "safe-switch-on")}><span /></button></div>
           {!governanceReady && <div className="mt-4 rounded-[8px] bg-muted-surface p-4 text-[13px]"><strong>Auto-approval is unavailable</strong><p className="mt-1 text-ink-muted">{!hasActivePolicies ? "Add and activate an approved policy. " : ""}{!hasDelivery ? "Connect email or WhatsApp for live delivery." : ""}</p></div>}
-          <label className="automation-range mt-6 block"><span className="flex items-center justify-between gap-4"><span>Auto-approve threshold</span><strong>{automation.auto_approve_threshold}%</strong></span><input type="range" min="80" max="99" value={automation.auto_approve_threshold} onChange={(event) => onChange({ ...automation, auto_approve_threshold: Number(event.target.value) })} /><span className="range-bounds"><span>80%</span><span>99%</span></span></label>
-          <label className="automation-range mt-7 block border-t border-line pt-6"><span className="flex items-center justify-between gap-4"><span>Mandatory review below</span><strong>{automation.mandatory_review_threshold}%</strong></span><input type="range" min="50" max="90" value={automation.mandatory_review_threshold} onChange={(event) => onChange({ ...automation, mandatory_review_threshold: Number(event.target.value) })} /><span className="range-bounds"><span>50%</span><span>90%</span></span></label>
+          <label className="automation-range mt-6 block"><span><span>Auto-approve threshold</span><strong>{automation.auto_approve_threshold}%</strong></span><input type="range" min="80" max="99" value={automation.auto_approve_threshold} onChange={(event) => onChange({ ...automation, auto_approve_threshold: Number(event.target.value) })} /><span className="range-bounds"><span>80%</span><span>99%</span></span></label>
+          <label className="automation-range mt-7 block border-t border-line pt-6"><span><span>Mandatory review below</span><strong>{automation.mandatory_review_threshold}%</strong></span><input type="range" min="50" max="90" value={automation.mandatory_review_threshold} onChange={(event) => onChange({ ...automation, mandatory_review_threshold: Number(event.target.value) })} /><span className="range-bounds"><span>50%</span><span>90%</span></span></label>
           {automation.mandatory_review_threshold >= automation.auto_approve_threshold && <p className="mt-4 flex items-center gap-2 text-[10px] font-bold"><CircleAlert className="size-4" />The lower threshold must remain below auto-approve.</p>}
           {confirmSave ? <div className="mt-5 border-y border-line py-4 text-[13px]"><strong>Policy impact before save</strong><p className="mt-1 text-ink-muted">{autoCount} conversations would be eligible and {reviewCount} would require review. Fraud, security and financial-action cases remain blocked.</p><div className="mt-3 flex gap-2"><Button onClick={() => { onSave(); setConfirmSave(false); }} disabled={saving}><Save className="size-4" />Confirm and save</Button><Button variant="ghost" onClick={() => setConfirmSave(false)}>Cancel</Button></div></div> : <Button onClick={() => setConfirmSave(true)} disabled={saving || automation.mandatory_review_threshold >= automation.auto_approve_threshold || (automation.enabled && !governanceReady)} className="mt-7"><Save className="size-4" />Review changes</Button>}
         </Card>
@@ -709,12 +796,12 @@ function SettingsView({ automation, onChange, onSave, saving, tickets, integrati
         <div className="border-b border-line p-6"><h3 className="text-[16px] font-semibold tracking-[-0.02em]">Approved response policies</h3><p className="mt-2 max-w-2xl text-[13px] leading-5 text-ink-muted">Kora retrieves matching policy text before drafting and records every cited version in the case audit.</p></div>
         <div className="grid lg:grid-cols-[1fr_1fr]">
           <div className="border-b border-line p-6 lg:border-b-0 lg:border-r">
-            <div className="grid gap-4 sm:grid-cols-[1fr_140px]"><label className="automation-field">Policy title<Input value={policyDraft.title} onChange={(event) => setPolicyDraft({ ...policyDraft, title: event.target.value })} placeholder="Transfer reversal timeline" /></label><label className="automation-field">Version<Input value={policyDraft.version} onChange={(event) => setPolicyDraft({ ...policyDraft, version: event.target.value })} /></label></div>
-            <label className="automation-field mt-4">Source URL (optional)<Input type="url" value={policyDraft.source_url} onChange={(event) => setPolicyDraft({ ...policyDraft, source_url: event.target.value })} placeholder="https://company.example/policy" /></label>
+            <div className="grid gap-4 sm:grid-cols-[1fr_140px]"><label className="automation-field">Policy title<input value={policyDraft.title} onChange={(event) => setPolicyDraft({ ...policyDraft, title: event.target.value })} placeholder="Transfer reversal timeline" /></label><label className="automation-field">Version<input value={policyDraft.version} onChange={(event) => setPolicyDraft({ ...policyDraft, version: event.target.value })} /></label></div>
+            <label className="automation-field mt-4">Source URL (optional)<input type="url" value={policyDraft.source_url} onChange={(event) => setPolicyDraft({ ...policyDraft, source_url: event.target.value })} placeholder="https://company.example/policy" /></label>
             <label className="automation-field mt-4">Approved content<textarea value={policyDraft.content} onChange={(event) => setPolicyDraft({ ...policyDraft, content: event.target.value })} rows={7} placeholder="Paste the exact approved policy, required information, timeline and escalation path." /></label>
             <Button className="mt-3" disabled={policySaving || policyDraft.title.length < 3 || policyDraft.content.length < 20} onClick={async () => { const saved = await onCreatePolicy({ ...policyDraft, source_url: policyDraft.source_url || null }); if (saved) setPolicyDraft({ title: "", version: "1.0", source_url: "", content: "" }); }}><BookOpenCheck className="size-4" />{policySaving ? "Saving policy" : "Approve policy"}</Button>
           </div>
-          <div className="divide-y divide-line">{policies.length ? policies.map((policy) => <div key={policy.id} className="flex items-start justify-between gap-5 p-5"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-[13px]">{policy.title}</strong><Badge variant={policy.active ? "accent" : "neutral"} shape="pill">v{policy.version}</Badge></div><p className="mt-2 line-clamp-2 text-[12px] leading-5 text-ink-muted">{policy.content}</p></div><Switch aria-label={`${policy.active ? "Deactivate" : "Activate"} ${policy.title}`} checked={Boolean(policy.active)} onCheckedChange={(active) => onTogglePolicy(policy.id, active)} /></div>) : <div className="p-6"><BookOpenCheck className="size-5 text-ink-faint" /><strong className="mt-3 block text-[13px]">No approved policies</strong><p className="mt-1 max-w-md text-[12px] leading-5 text-ink-muted">Drafts remain human-reviewed until the first company policy is added.</p></div>}</div>
+          <div className="divide-y divide-line">{policies.length ? policies.map((policy) => <div key={policy.id} className="flex items-start justify-between gap-5 p-5"><div className="min-w-0"><div className="flex items-center gap-2"><strong className="truncate text-[13px]">{policy.title}</strong><Badge variant={policy.active ? "accent" : "neutral"} shape="pill">v{policy.version}</Badge></div><p className="mt-2 line-clamp-2 text-[12px] leading-5 text-ink-muted">{policy.content}</p></div><button type="button" role="switch" aria-label={`${policy.active ? "Deactivate" : "Activate"} ${policy.title}`} aria-checked={Boolean(policy.active)} onClick={() => onTogglePolicy(policy.id, !policy.active)} className={cn("relative h-11 w-11 shrink-0 rounded-full border transition-colors focus-visible:ring-2 focus-visible:ring-ring", policy.active ? "border-ink bg-ink" : "border-line-strong bg-muted-surface")}><span className={cn("absolute left-2 top-[13px] size-4 rounded-full bg-paper transition-transform", policy.active ? "translate-x-3" : "translate-x-0")} /></button></div>) : <div className="p-6"><BookOpenCheck className="size-5 text-ink-faint" /><strong className="mt-3 block text-[13px]">No approved policies</strong><p className="mt-1 max-w-md text-[12px] leading-5 text-ink-muted">Drafts remain human-reviewed until the first company policy is added.</p></div>}</div>
         </div>
       </div>
     </div>
@@ -775,6 +862,8 @@ const auditLabels = {
   proof_run_completed: "Historical evaluation completed",
   sensitive_data_revealed: "Sensitive data revealed"
 };
+const auditValueLabels = { assigned_to_specialist: "Assigned to specialist", routed: "Routed by agent", approved: "Approved by agent", auto_approved: "Auto-approved" };
+
 function DecisionAuditView({ items, loading }) {
   const [search, setSearch] = useState("");
   const [eventType, setEventType] = useState("all");
@@ -788,30 +877,43 @@ function DecisionAuditView({ items, loading }) {
   const exportCsv = () => { const rows = [["time", "case", "customer", "event", "actor", "decision"], ...filtered.map((item) => [item.created_at, item.case_id, item.customer_id, auditLabels[item.event_type] || item.event_type, item.actor || "System", item.decision.intent || item.decision.status || "Recorded action"])]; const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "kora-filtered-audit.csv"; link.click(); URL.revokeObjectURL(link.href); };
   const events = [...new Set(items.map((item) => item.event_type))];
   const actors = [...new Set(items.map(displayActor))];
+  return <div className="view-padding"><div className="page-heading page-heading-row"><div><h2>Decision audit</h2><p>Search and inspect automated decisions, agent actions and governance changes.</p></div><Button variant="outline" onClick={exportCsv} disabled={!filtered.length}><Download />Export filtered results</Button></div><div className="audit-filters"><label><Search /><span className="sr-only">Search audit trail</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search case, customer or actor" /></label><input type="date" aria-label="Start date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /><Select value={eventType} onValueChange={setEventType}><SelectTrigger aria-label="Event type"><SelectValue placeholder="Event type" /></SelectTrigger><SelectContent><SelectItem value="all">All event types</SelectItem>{events.map((value) => <SelectItem key={value} value={value}>{auditLabels[value] || value.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select><Select value={actor} onValueChange={setActor}><SelectTrigger aria-label="Actor"><SelectValue placeholder="Actor" /></SelectTrigger><SelectContent><SelectItem value="all">All actors</SelectItem>{actors.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><div className="table-surface audit-table">{loading ? <div className="space-y-3 p-5"><Skeleton className="h-12 w-full" /><Skeleton className="h-16 w-full" /></div> : filtered.length ? <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Case</TableHead><TableHead>Event</TableHead><TableHead>Decision</TableHead><TableHead>Actor</TableHead><TableHead><span className="sr-only">Details</span></TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => { const summary = item.decision.intent || item.decision.status || "Recorded action"; return <TableRow key={item.id}><TableCell><time>{formatDate(item.created_at)}</time></TableCell><TableCell><strong>{item.case_id}</strong></TableCell><TableCell>{auditLabels[item.event_type] || item.event_type.replaceAll("_", " ")}</TableCell><TableCell>{summary}</TableCell><TableCell>{item.actor || "System"}</TableCell><TableCell><details className="audit-expansion"><summary>View reasoning</summary><div><p><strong>Reason:</strong> {item.guardrails.reason || item.decision.evidence?.join("; ") || "Agent decision"}</p><p><strong>Customer:</strong> {item.customer_id}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></TableCell></TableRow>; })}</TableBody></Table> : <p className="compact-empty">No audit events match these filters.</p>}</div></div>;
+}
+
+function DecisionAuditView2({ items, loading }) {
+  const [search, setSearch] = useState("");
+  const [eventType, setEventType] = useState("all");
+  const [actor, setActor] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const displayActor = (item) => item.event_type === "triage" ? "Kora automation" : item.actor || "System";
+  const eventName = (item) => auditLabels[item.event_type] || item.event_type.replaceAll("_", " ");
+  const summary = (item) => auditValueLabels[item.decision.status] || item.decision.intent || item.decision.status || "Recorded action";
+  const reason = (item) => item.guardrails.reason || item.decision.evidence?.join("; ") || "Agent decision recorded without automated reasoning.";
+  const filtered = items.filter((item) => {
+    const haystack = `${item.case_id} ${item.customer_id} ${item.event_type} ${displayActor(item)}`.toLowerCase();
+    return (!search || haystack.includes(search.toLowerCase())) && (eventType === "all" || item.event_type === eventType) && (actor === "all" || displayActor(item) === actor) && (!dateFrom || new Date(item.created_at) >= new Date(`${dateFrom}T00:00:00`));
+  });
   const hasFilters = Boolean(search || dateFrom || eventType !== "all" || actor !== "all");
   const clearFilters = () => { setSearch(""); setDateFrom(""); setEventType("all"); setActor("all"); };
-  const eventName = (item) => auditLabels[item.event_type] || item.event_type.replaceAll("_", " ");
-  const decisionSummary = (item) => item.decision.intent || item.decision.status || "Recorded action";
-  const reason = (item) => item.guardrails.reason || item.decision.evidence?.join("; ") || "Agent decision";
+  const exportCsv = () => {
+    const rows = [["time", "case", "customer", "event", "actor", "decision"], ...filtered.map((item) => [item.created_at, item.case_id, item.customer_id, eventName(item), displayActor(item), summary(item)])];
+    const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    link.download = "kora-filtered-audit.csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+  const events = [...new Set(items.map((item) => item.event_type))];
+  const actors = [...new Set(items.map(displayActor))];
   return (
-    <div className="view-padding">
-      <div className="page-heading page-heading-row">
-        <div><h2>Decision audit</h2><p>Search and inspect automated decisions, agent actions and governance changes.</p></div>
-        <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}><Download className="size-4" />Export results</Button>
-      </div>
-      <section className="audit-filter-panel" aria-label="Audit filters">
-        <div className="audit-filters">
-          <div className="audit-search"><Search className="size-4" /><span className="sr-only">Search audit trail</span><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search case, customer or actor" /></div>
-          <Suspense fallback={<Skeleton className="h-11 w-full" />}><AuditDatePicker value={dateFrom} onChange={setDateFrom} /></Suspense>
-          <Select value={eventType} onValueChange={setEventType}><SelectTrigger aria-label="Event type"><SelectValue placeholder="Event type" /></SelectTrigger><SelectContent><SelectItem value="all">All event types</SelectItem>{events.map((value) => <SelectItem key={value} value={value}>{auditLabels[value] || value.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select>
-          <Select value={actor} onValueChange={setActor}><SelectTrigger aria-label="Actor"><SelectValue placeholder="Actor" /></SelectTrigger><SelectContent><SelectItem value="all">All actors</SelectItem>{actors.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>
-        </div>
-        <div className="audit-filter-summary"><p><strong>{filtered.length}</strong> of {items.length} events shown</p>{hasFilters && <Button variant="ghost" size="sm" onClick={clearFilters}><X className="size-4" />Clear filters</Button>}</div>
-      </section>
-      {loading ? <div className="table-surface space-y-3 p-5"><Skeleton className="h-12 w-full" /><Skeleton className="h-16 w-full" /></div> : filtered.length ? <>
-        <div className="table-surface audit-table audit-table-desktop"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Case</TableHead><TableHead>Event</TableHead><TableHead>Decision</TableHead><TableHead>Actor</TableHead><TableHead><span className="sr-only">Details</span></TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => <TableRow key={item.id}><TableCell><time>{formatDate(item.created_at)}</time></TableCell><TableCell><strong>{item.case_id}</strong><small className="mt-1 block">{item.customer_id}</small></TableCell><TableCell>{eventName(item)}</TableCell><TableCell><strong>{decisionSummary(item)}</strong></TableCell><TableCell>{displayActor(item)}</TableCell><TableCell><details className="audit-expansion"><summary>View reasoning</summary><div><p><strong>Reason:</strong> {reason(item)}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></TableCell></TableRow>)}</TableBody></Table></div>
-        <div className="audit-mobile-list">{filtered.map((item) => <article key={item.id} className="audit-mobile-record"><div className="audit-record-heading"><div><span>{eventName(item)}</span><strong>{decisionSummary(item)}</strong></div><time>{formatDate(item.created_at)}</time></div><dl><div><dt>Case</dt><dd>{item.case_id}</dd></div><div><dt>Actor</dt><dd>{displayActor(item)}</dd></div></dl><details className="audit-expansion"><summary>View decision reasoning <ChevronDown className="size-4" /></summary><div><p><strong>Reason:</strong> {reason(item)}</p><p><strong>Customer:</strong> {item.customer_id}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></article>)}</div>
-      </> : <p className="compact-empty">No audit events match these filters. Clear one or more filters to broaden the result.</p>}
+    <div className="view-padding audit-page">
+      <div className="page-heading page-heading-row"><div><h2>Decision audit</h2><p>Search and inspect automated decisions, agent actions and governance changes.</p></div><Button variant="outline" onClick={exportCsv} disabled={!filtered.length}><Download />Export results</Button></div>
+      <section className="audit-filter-panel" aria-label="Audit filters"><div className="audit-filters"><label className="audit-search"><Search /><span className="sr-only">Search audit trail</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search case, customer or actor" /></label><input type="date" aria-label="Start date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /><Select value={eventType} onValueChange={setEventType}><SelectTrigger aria-label="Event type"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All event types</SelectItem>{events.map((value) => <SelectItem key={value} value={value}>{auditLabels[value] || value.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select><Select value={actor} onValueChange={setActor}><SelectTrigger aria-label="Actor"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All actors</SelectItem>{actors.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select></div><div className="audit-filter-summary"><p><strong>{filtered.length}</strong> of {items.length} events shown</p>{hasFilters && <Button variant="ghost" size="sm" onClick={clearFilters}><X />Clear filters</Button>}</div></section>
+      {loading ? <div className="table-surface space-y-3 p-5" aria-label="Loading audit events"><Skeleton className="h-12 w-full" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div> : filtered.length ? <>
+        <div className="table-surface audit-table-desktop"><Table><caption className="sr-only">Decision and action audit events</caption><TableHeader><TableRow><TableHead scope="col">Date</TableHead><TableHead scope="col">Case</TableHead><TableHead scope="col">Event</TableHead><TableHead scope="col">Decision</TableHead><TableHead scope="col">Actor</TableHead><TableHead scope="col"><span className="sr-only">Reasoning</span></TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => <TableRow key={item.id}><TableCell><time>{formatDate(item.created_at)}</time></TableCell><TableCell><strong>{item.case_id}</strong><small className="block">{item.customer_id}</small></TableCell><TableCell>{eventName(item)}</TableCell><TableCell><strong>{summary(item)}</strong></TableCell><TableCell>{displayActor(item)}</TableCell><TableCell><details className="audit-expansion"><summary>View reasoning</summary><div><p><strong>Reason:</strong> {reason(item)}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></TableCell></TableRow>)}</TableBody></Table></div>
+        <div className="audit-mobile-list">{filtered.map((item) => <article key={item.id} className="audit-mobile-record"><header><div><span>{eventName(item)}</span><h3>{summary(item)}</h3></div><time>{formatDate(item.created_at)}</time></header><dl><div><dt>Case</dt><dd>{item.case_id}</dd></div><div><dt>Actor</dt><dd>{displayActor(item)}</dd></div></dl><details className="audit-expansion"><summary>Inspect reasoning <ChevronDown /></summary><div><p><strong>Reason:</strong> {reason(item)}</p><p><strong>Customer:</strong> {item.customer_id}</p><p><strong>Technical source:</strong> {item.model || "Human action"}</p></div></details></article>)}</div>
+      </> : <OperationalEmptyState type={hasFilters ? "no-results" : "first-use"} title={hasFilters ? "No audit events match these filters" : "No decisions have been recorded"} description={hasFilters ? "The audit record is unchanged. Clear one or more filters to broaden the investigation." : "Classifications, human interventions and policy changes will appear here after the first recorded action."} actionLabel={hasFilters ? "Clear filters" : undefined} onAction={clearFilters} />}
     </div>
   );
 }
@@ -896,13 +998,17 @@ function DashboardApp() {
   };
 
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2600); return () => clearTimeout(timer); }, [toast]);
-  useEffect(() => {
-    let active = true;
-    getBackendHealth()
-      .then((health) => active && setBackend({ state: "online", ...health }))
-      .catch(() => { if (active) { setBackend({ state: "offline", configured: false }); setLoading(false); } });
-    return () => { active = false; };
-  }, []);
+  const retryConnection = async () => {
+    setBackend((current) => ({ ...current, state: "recovering" }));
+    try {
+      const health = await getBackendHealth();
+      setBackend({ state: "online", ...health });
+    } catch {
+      setBackend({ state: "offline", configured: false });
+      setLoading(false);
+    }
+  };
+  useEffect(() => { retryConnection(); }, []);
   useEffect(() => {
     if (backend.state !== "online") return;
     let active = true;
@@ -929,10 +1035,6 @@ function DashboardApp() {
   useEffect(() => {
     if (activeView === "audit" && backend.state === "online") refreshAudit();
   }, [activeView, backend.state]);
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "auto" });
-    document.getElementById("main-content")?.scrollTo({ top: 0, behavior: "auto" });
-  }, [activeView]);
 
   const visibleTickets = useMemo(() => tickets.filter((ticket) => {
     const text = `${ticket.id} ${ticket.customer.name} ${ticket.message} ${ticket.intent}`.toLowerCase();
@@ -947,14 +1049,21 @@ function DashboardApp() {
       && (activeFilters.team === "all" || ticket.route === activeFilters.team);
   }).sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency] || b.minutesAgo - a.minutesAgo), [tickets, query, activeFilters.review, activeFilters.high, activeFilters.sla, activeFilters.unassigned, activeFilters.assignee, activeFilters.channel, activeFilters.urgency, activeFilters.team, automation, integrations, policies]);
 
-  useEffect(() => { if (visibleTickets.length && !visibleTickets.some((ticket) => ticket.id === selectedId)) setSelectedId(visibleTickets[0].id); }, [visibleTickets, selectedId]);
   const selectedTicket = tickets.find((ticket) => ticket.id === selectedId) || tickets[0];
   useEffect(() => {
-    if (backend.state === "online") {
+    if (loading || !queueScrollRef.current) return;
+    const selectedRow = queueScrollRef.current.querySelector(`[data-ticket="${selectedId}"]`);
+    if (!selectedRow) return;
+    const viewport = queueScrollRef.current.getBoundingClientRect();
+    const row = selectedRow.getBoundingClientRect();
+    if (row.top < viewport.top || row.bottom > viewport.bottom) queueScrollRef.current.scrollTop += row.top - viewport.top;
+  }, [selectedId, loading, visibleTickets]);
+  useEffect(() => {
+    if (backend.state === "online" && selectedTicket) {
       refreshMemory(selectedTicket.customerId);
       refreshConversation(selectedTicket.id);
     }
-  }, [backend.state, selectedTicket.customerId, selectedTicket.id]);
+  }, [backend.state, selectedTicket?.customerId, selectedTicket?.id]);
   const updateStatus = (id, status, escalated) => setTickets((items) => items.map((ticket) => ticket.id === id ? { ...ticket, status, escalated: escalated ?? ticket.escalated } : ticket));
   const runLiveAI = async (ticket) => {
     setAiLoadingId(ticket.id);
@@ -1226,7 +1335,6 @@ function DashboardApp() {
     queueScrollPosition.current = queueScrollRef.current?.scrollTop || 0;
     setSelectedId(id);
     setMobileCaseOpen(true);
-    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
   };
 
   const returnToQueue = () => {
@@ -1263,8 +1371,10 @@ function DashboardApp() {
     setActiveView("queue");
     setSelectedId(id);
     setMobileCaseOpen(true);
-    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
   };
+  const mode = operatingMode(backend, jobs);
+  const affected = mode.state === "manual" || mode.state === "offline" ? tickets.filter((ticket) => !isProcessed(ticket)).length : mode.state === "degraded" ? jobs?.counts?.dead || 0 : 0;
+  const affectedCount = affected > 0 ? affected : null;
 
   if (!signedIn) return <SignedOutView onReturn={() => setSignedIn(true)} />;
 
@@ -1272,20 +1382,20 @@ function DashboardApp() {
     <div className="workspace-app bg-canvas text-ink">
       <a href="#main-content" className="skip-link">Skip to content</a>
       <Rail activeView={activeView} onView={setActiveView} open={railOpen} onClose={() => setRailOpen(false)} user={currentUser} />
-      <div className="workspace-shell lg:pl-[232px]">
+      <div className="workspace-shell xl:pl-[232px]">
         <Header activeView={activeView} onMenu={() => setRailOpen(true)} backend={backend} tickets={tickets} onOpenTicket={openTicketFromNotification} onView={setActiveView} user={currentUser} onLogout={() => { window.localStorage.removeItem("kora_token"); setSignedIn(false); }} />
-        {backend.alert && <div className="system-alert"><WifiOff />AI service unavailable. Agents can continue with manual classification and review.</div>}
+        <SystemStatusBar state={mode.state} title={mode.title} description={mode.description} affectedCount={affectedCount} actionLabel={mode.state === "connected" ? undefined : "Retry connection"} onAction={retryConnection} compact={mode.state === "connected"} />
         <main id="main-content" tabIndex={-1} className={cn("workspace-main", activeView === "queue" ? "workspace-main-queue" : "workspace-main-scroll")}>
-          {activeView === "queue" && <div className={cn("queue-view", mobileCaseOpen && "mobile-case-open")}><MetricsStrip tickets={tickets} automation={automation} governance={governance} onFilter={filterQueueByPriority} /><div className="workspace-grid"><QueuePane tickets={visibleTickets} selectedId={selectedId} onSelect={selectTicket} loading={loading} query={query} onQuery={setQuery} filters={activeFilters} onFilters={setFilters} selectedIds={selectedIds} onToggle={toggleSelected} onSelectAll={selectAll} onBulkApprove={bulkApprove} onBulkRoute={bulkRoute} bulkLoading={bulkLoading} automation={automation} governance={governance} scrollRef={queueScrollRef} /><CaseDetail ticket={selectedTicket} onApprove={approve} onEscalate={escalate} onRunAI={runLiveAI} onFeedback={saveFeedback} onResolve={resolve} onAssign={assignCase} onAddNote={saveCaseNote} onVerifyTransaction={verifyTransaction} onManualAssessment={saveHumanAssessment} onBack={returnToQueue} onSensitiveReveal={auditSensitiveReveal} aiLoading={aiLoadingId === selectedTicket.id} actionLoading={actionLoadingId === selectedTicket.id} backend={backend} automation={automation} governance={governance} memoryItems={memoryItems} memoryLoading={memoryLoading} conversation={conversation} notes={caseNotes} conversationLoading={conversationLoading} currentUser={currentUser} /></div></div>}
+          {activeView === "queue" && <div className={cn("queue-view", mobileCaseOpen && "mobile-case-open")}><MetricsStrip tickets={tickets} automation={automation} governance={governance} backend={backend} onFilter={filterQueueByPriority} /><div className="workspace-grid"><QueuePane tickets={visibleTickets} selectedId={selectedId} selectedTicket={selectedTicket} onSelect={selectTicket} loading={loading} query={query} onQuery={setQuery} filters={activeFilters} onFilters={setFilters} selectedIds={selectedIds} onToggle={toggleSelected} onSelectAll={selectAll} onBulkApprove={bulkApprove} onBulkRoute={bulkRoute} bulkLoading={bulkLoading} automation={automation} governance={governance} scrollRef={queueScrollRef} />{selectedTicket ? <CaseDetail ticket={selectedTicket} onApprove={approve} onEscalate={escalate} onRunAI={runLiveAI} onFeedback={saveFeedback} onResolve={resolve} onAssign={assignCase} onAddNote={saveCaseNote} onVerifyTransaction={verifyTransaction} onManualAssessment={saveHumanAssessment} onBack={returnToQueue} onSensitiveReveal={auditSensitiveReveal} aiLoading={aiLoadingId === selectedTicket.id} actionLoading={actionLoadingId === selectedTicket.id} backend={backend} automation={automation} governance={governance} memoryItems={memoryItems} memoryLoading={memoryLoading} conversation={conversation} notes={caseNotes} conversationLoading={conversationLoading} currentUser={currentUser} /> : <OperationalEmptyState type="completed" title="No case selected" description="The support queue is clear. New conversations will open here when they arrive." className="empty-detail-state" />}</div></div>}
           {activeView === "insights" && <Suspense fallback={<div className="view-padding"><Skeleton className="h-[420px] w-full" /></div>}><InsightsView tickets={tickets} evaluationSummary={evaluationSummary} /></Suspense>}
-          {activeView === "proof" && <HistoricalEvaluationView runs={proofRuns} onRun={runProof} running={proofRunning} backend={backend} />}
-          {activeView === "audit" && <DecisionAuditView items={auditItems} loading={auditLoading} />}
+          {activeView === "proof" && <HistoricalEvaluationView2 runs={proofRuns} onRun={runProof} running={proofRunning} backend={backend} />}
+          {activeView === "audit" && <DecisionAuditView2 items={auditItems} loading={auditLoading} />}
           {activeView === "team" && <TeamView tickets={tickets} onFilterQueue={filterQueueByAssignee} />}
-          {activeView === "settings" && <SettingsView automation={automation} onChange={setAutomation} onSave={saveAutomation} saving={settingsSaving} tickets={tickets} integrations={integrations} jobs={jobs} policies={policies} onCreatePolicy={savePolicy} onTogglePolicy={togglePolicy} policySaving={policySaving} />}
+          {activeView === "settings" && <SettingsView automation={automation} onChange={setAutomation} onSave={saveAutomation} saving={settingsSaving} tickets={tickets} integrations={integrations} jobs={jobs} policies={policies} onCreatePolicy={savePolicy} onTogglePolicy={togglePolicy} policySaving={policySaving} backend={backend} />}
         </main>
       </div>
-      {railOpen && <button className="fixed inset-0 z-30 bg-ink/20 lg:hidden" onClick={() => setRailOpen(false)} aria-label="Close navigation overlay" />}
-      <div role="status" aria-live="polite" className={cn("fixed bottom-5 right-3 z-50 flex max-w-[calc(100vw-24px)] items-center gap-2 border border-ink bg-ink px-4 py-3 text-[13px] font-bold text-paper shadow-precision transition-all sm:right-5", toast ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")}><CheckCircle2 className="size-4 shrink-0 text-accent" />{toast}</div>
+      {railOpen && <button className="fixed inset-0 z-30 bg-ink/20 xl:hidden" onClick={() => setRailOpen(false)} aria-label="Close navigation overlay" />}
+      <div role="status" aria-live="polite" className={cn("fixed bottom-5 right-3 z-50 flex max-w-[calc(100vw-24px)] items-center gap-2 rounded-[7px] border border-ink bg-ink px-4 py-3 text-[13px] font-semibold text-paper shadow-precision transition-[transform,opacity] sm:right-5", toast ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")}><CheckCircle2 className="size-4 shrink-0 text-accent" />{toast}</div>
     </div>
   );
 }

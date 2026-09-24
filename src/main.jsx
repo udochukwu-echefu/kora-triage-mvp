@@ -1,7 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "@fontsource-variable/elms-sans/wght.css";
-import "react-day-picker/style.css";
 import App from "./App.jsx";
 import "./index.css";
 

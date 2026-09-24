@@ -1,6 +1,6 @@
 import { cn } from "../../lib/utils";
 
-export function Table({ className, ...props }) { return <table className={cn("w-full border-collapse text-left", className)} {...props} />; }
+export function Table({ className, caption, children, ...props }) { return <table className={cn("w-full border-collapse text-left", className)} {...props}>{caption && <caption className="sr-only">{caption}</caption>}{children}</table>; }
 export function TableHeader({ className, ...props }) { return <thead className={cn("border-b border-line-strong bg-muted-surface", className)} {...props} />; }
 export function TableBody({ className, ...props }) { return <tbody className={className} {...props} />; }
 export function TableRow({ className, ...props }) { return <tr className={cn("border-b border-line transition-colors hover:bg-muted-surface/70", className)} {...props} />; }
