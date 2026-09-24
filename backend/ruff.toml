@@ -1,0 +1,13 @@
+target-version = "py312"
+line-length = 120
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+  "E501",   # long SQL strings and test tables read better unwrapped
+  "UP042",  # StrEnum changes str() of the API enums; keep (str, Enum)
+]
+
+[lint.flake8-bugbear]
+# FastAPI declares dependencies and parameters as default arguments.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Header", "fastapi.Query"]

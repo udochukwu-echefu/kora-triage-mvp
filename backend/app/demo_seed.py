@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 
 from .database import Database
 
-
 MODEL_NAME = "openai/gpt-oss-20b (seed snapshot)"
 
 
@@ -459,11 +458,33 @@ DEMO_HUMAN_DECISIONS = [
 ]
 
 
-def seed_demo_data(database: Database) -> None:
+DEMO_TEAM = (
+    {"name": "Ada Okafor", "role": "Support manager", "teams": ["General Support"], "capacity": 8, "availability": "Online"},
+    {"name": "Musa Ibrahim", "role": "Payments specialist", "teams": ["Transfers", "Billing"], "capacity": 5, "availability": "Busy"},
+    {"name": "Nneka Eze", "role": "Risk specialist", "teams": ["Fraud", "Compliance"], "capacity": 4, "availability": "Offline"},
+    {"name": "Bola Martins", "role": "Customer operations", "teams": ["Logistics", "Account Support"], "capacity": 7, "availability": "Online"},
+)
+
+
+def seed_demo_data(database: Database, tenant_id: str = "tenant-demo") -> None:
+    """Load the synthetic demo workspace. Safe to call on every start.
+
+    Ticket ages are re-anchored to "now" on each start so the demo queue keeps
+    realistic SLA timings instead of every case becoming days overdue.
+    """
+    now = datetime.now(UTC)
+    for member in DEMO_TEAM:
+        database.upsert_team_member(tenant_id=tenant_id, **member)
     for ticket in DEMO_TICKETS:
-        database.add_support_ticket(ticket)
+        database.add_support_ticket(
+            {
+                **ticket,
+                "lastMessageAt": (now - timedelta(minutes=ticket["minutesAgo"])).isoformat(),
+            },
+            tenant_id=tenant_id,
+        )
         triage = ticket["triage"]
-        if database.latest_triage_for_case(ticket["id"]) is None:
+        if database.latest_triage_for_case(ticket["id"], tenant_id) is None:
             database.add_audit(
                 case_id=ticket["id"],
                 customer_id=ticket["customerId"],
@@ -496,6 +517,7 @@ def seed_demo_data(database: Database) -> None:
                 },
                 actor="groq-model-seed",
                 created_at=ticket["createdAt"],
+                tenant_id=tenant_id,
             )
         database.add_memory(
             ticket["customerId"],
@@ -503,12 +525,13 @@ def seed_demo_data(database: Database) -> None:
             f'{triage["intent"]}; {triage["urgency"]} urgency; route {triage["route"]}; case {ticket["id"]}.',
             triage["entities"],
             created_at=ticket["createdAt"],
+            tenant_id=tenant_id,
         )
 
     tickets_by_id = {ticket["id"]: ticket for ticket in DEMO_TICKETS}
     for action in DEMO_HUMAN_DECISIONS:
         ticket = tickets_by_id[action["case_id"]]
-        if database.audit_event_exists(ticket["id"], action["event_type"]):
+        if database.audit_event_exists(ticket["id"], action["event_type"], tenant_id):
             continue
         event_time = (
             datetime.fromisoformat(ticket["createdAt"])
@@ -524,24 +547,24 @@ def seed_demo_data(database: Database) -> None:
             guardrails=action["guardrails"],
             actor="Ada Okafor",
             created_at=event_time,
+            tenant_id=tenant_id,
         )
-        database.update_support_ticket_fields(ticket["id"], action["ticket_updates"])
+        database.update_support_ticket_fields(ticket["id"], action["ticket_updates"], tenant_id)
+        if action["event_type"] == "human_approved":
+            database.set_lifecycle(ticket["id"], "approved", tenant_id=tenant_id)
 
     specialist_by_route = {
-        "Transfers": "Musa Ibrahim",
-        "Billing": "Musa Ibrahim",
-        "Fraud": "Nneka Eze",
-        "Compliance": "Nneka Eze",
-        "Logistics": "Bola Martins",
-        "Account Support": "Bola Martins",
-        "General Support": "Ada Okafor",
+        team: member["name"] for member in DEMO_TEAM for team in member["teams"]
     }
     for action in DEMO_HUMAN_DECISIONS:
         if action["event_type"] != "human_escalated":
             continue
         ticket = tickets_by_id[action["case_id"]]
+        if database.lifecycle(ticket["id"], tenant_id):
+            continue
         database.set_lifecycle(
             ticket["id"],
             "review_required",
+            tenant_id=tenant_id,
             assigned_to=specialist_by_route[ticket["triage"]["route"]],
         )

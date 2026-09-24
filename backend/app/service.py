@@ -4,6 +4,7 @@ import re
 from time import perf_counter
 
 from .automation import auto_approval_decision
+from .config import DEFAULT_AUTOMATION
 from .database import Database
 from .groq_triage import TriageModel
 from .guardrails import apply_guardrails
@@ -20,12 +21,14 @@ from .triage_policy import apply_operational_policy
 
 
 def _redacted_request(request: TriageRequest) -> tuple[TriageRequest, dict[str, str | None]]:
-    message, deterministic = redact_for_model(request.message)
-    subject, _ = redact_for_model(request.subject or "")
-    context, _ = redact_for_model(request.customer.previous_context)
+    # The customer's own name is removed from free text as well as the name field.
+    names = [request.customer.name]
+    message, deterministic = redact_for_model(request.message, names)
+    subject, _ = redact_for_model(request.subject or "", names)
+    context, _ = redact_for_model(request.customer.previous_context, names)
     safe_notes = []
     for note in request.customer.notes:
-        safe_note = redact_for_model(note)[0]
+        safe_note = redact_for_model(note, names)[0]
         if safe_note.lstrip().upper().startswith("APPROVED POLICY"):
             safe_note = f"[UNTRUSTED NOTE] {safe_note}"
         safe_notes.append(safe_note)
@@ -77,12 +80,23 @@ class TriageService:
         request: TriageRequest,
         tenant_id: str = "tenant-demo",
         policy_tenant_id: str | None = None,
+        *,
+        simulate_automation: bool = False,
     ) -> TriageResult:
+        """Classify, guard, and persist one case.
+
+        ``policy_tenant_id`` is the workspace whose policies and automation
+        settings apply when ``tenant_id`` is an isolated store (proof mode).
+        ``simulate_automation`` evaluates eligibility as if auto-approval were
+        on and delivery connected, without enabling either; proof mode uses it
+        to report what automation *would* do.
+        """
+        settings_tenant_id = policy_tenant_id or tenant_id
         started_at = perf_counter()
         safe_request, deterministic = _redacted_request(request)
         policy_citations = relevant_policies(
             self.database,
-            tenant_id=policy_tenant_id or tenant_id,
+            tenant_id=settings_tenant_id,
             message=f"{request.subject or ''} {request.message}",
         )
         if policy_citations:
@@ -112,22 +126,21 @@ class TriageService:
         policy = apply_operational_policy(safe_request, model_result)
         model_result = policy.triage
         automation = self.database.get_setting(
-            "automation",
-            {"enabled": False, "auto_approve_threshold": 95, "mandatory_review_threshold": 70},
-            tenant_id,
+            "automation", DEFAULT_AUTOMATION, settings_tenant_id
         )
         processing_ms = round((perf_counter() - started_at) * 1000)
         estimated_minutes_saved = round(
             max(0, self.manual_baseline_minutes - processing_ms / 60_000), 1
         )
 
-        if deterministic["account_last4"] and not model_result.entities.account_last4:
+        entity_backfill = {
+            key: deterministic.get(key)
+            for key in ("account_last4", "card_last4")
+            if deterministic.get(key) and not getattr(model_result.entities, key)
+        }
+        if entity_backfill:
             model_result = model_result.model_copy(
-                update={
-                    "entities": model_result.entities.model_copy(
-                        update={"account_last4": deterministic["account_last4"]}
-                    )
-                }
+                update={"entities": model_result.entities.model_copy(update=entity_backfill)}
             )
 
         guardrail = apply_guardrails(
@@ -135,7 +148,7 @@ class TriageService:
             model_result,
             low_confidence_threshold=automation["mandatory_review_threshold"] / 100,
         )
-        first_name = request.customer.name.split()[0]
+        first_name = (request.customer.name.split() or ["there"])[0]
         response = re.sub(
             r"\b(Hi|Hello|Dear)\s+Customer\b",
             lambda match: f"{match.group(1)} {first_name}",
@@ -164,7 +177,7 @@ class TriageService:
             "flags": list(guardrail.flags),
         }
         automation_decision = auto_approval_decision(
-            enabled=automation["enabled"],
+            enabled=bool(automation["enabled"]) or simulate_automation,
             confidence=model_result.confidence,
             threshold=automation["auto_approve_threshold"],
             intent=model_result.intent.value,
@@ -175,14 +188,17 @@ class TriageService:
             guardrail_escalated=guardrail.escalated,
             guardrail_flags=list(guardrail.flags),
             verification_available=self.verification_available,
-            delivery_available=self.delivery_available,
+            delivery_available=self.delivery_available or simulate_automation,
             required_information_complete=not any(
                 phrase in response.lower()
                 for phrase in ("please provide", "kindly provide", "could you share", "send us your")
             ),
         )
-        auto_approved = automation_decision.eligible
+        # A simulated result is reported but never acted on.
+        auto_approved = automation_decision.eligible and not simulate_automation
         automation_record = automation_decision.as_dict()
+        if simulate_automation:
+            automation_record["simulated"] = True
         decision["automation"] = automation_record
         audit_id = self.database.add_audit(
             case_id=request.case_id,
@@ -270,6 +286,11 @@ class TriageService:
                 "estimatedMinutesSaved": result.estimated_minutes_saved,
                 "policyCitations": result.policy_citations,
                 "automation": automation_record,
+                # Kept separately so human corrections to intent/urgency/route
+                # never count as model accuracy.
+                "modelIntent": result.intent.value,
+                "modelUrgency": result.urgency.value,
+                "modelRoute": result.route.value,
             },
             tenant_id,
         )

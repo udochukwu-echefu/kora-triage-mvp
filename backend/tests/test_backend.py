@@ -13,6 +13,7 @@ from app.guardrails import apply_guardrails
 from app.privacy import redact_for_model
 from app.schemas import (
     ActionRequest,
+    CaseTriageRequest,
     CustomerContext,
     ExtractedEntities,
     Intent,
@@ -204,19 +205,11 @@ async def test_triage_endpoint_uses_the_persisted_case_payload(
 
     monkeypatch.setattr(main, "database", database)
     monkeypatch.setattr(main, "get_service", lambda: CapturingService())
+    # A tampered browser payload is no longer accepted at all: only IDs are sent.
+    with pytest.raises(ValueError):
+        CaseTriageRequest(case_id=ticket["id"], customer_id=ticket["customerId"], message="Tampered")
     result = await main.triage(
-        TriageRequest(
-            case_id=ticket["id"],
-            channel="email" if ticket["channel"] == "whatsapp" else "whatsapp",
-            message="Tampered client-side message",
-            subject="Tampered subject",
-            customer=CustomerContext(
-                customer_id=ticket["customerId"],
-                name="Tampered Customer",
-                previous_context="Tampered context",
-                notes=["Tampered note"],
-            ),
-        ),
+        CaseTriageRequest(case_id=ticket["id"], customer_id=ticket["customerId"]),
         Principal("tenant-demo", "agent", "Agent", "support_agent"),
     )
 
@@ -323,7 +316,7 @@ async def test_bulk_approval_cannot_bypass_recorded_automation_policy(
     monkeypatch.setattr(main, "database", database)
 
     with pytest.raises(HTTPException) as error:
-        await main.approve(
+        main.approve(
             "KOR-BLOCKED",
             ActionRequest(
                 customer_id="CUS-BLOCKED",

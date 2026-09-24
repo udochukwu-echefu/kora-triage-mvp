@@ -1,4 +1,7 @@
-const processed = (ticket) => ticket.source && ticket.source !== "pending";
+import { isProcessed as processed, slaState } from "../lib/tickets";
+
+// The model's own prediction; human corrections are not model accuracy.
+const modelValue = (ticket, field) => ticket[`model${field[0].toUpperCase()}${field.slice(1)}`] ?? ticket[field];
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const percent = (value) => value == null ? "No sample" : `${Math.round(finite(value) * 100)}%`;
 const dateFormatter = new Intl.DateTimeFormat("en-NG", { day: "2-digit", month: "short", year: "numeric" });
@@ -23,16 +26,18 @@ function RankedBars({ rows, emptyMessage, tone = "berry" }) {
   );
 }
 
-export default function InsightsView({ tickets = [], evaluationSummary }) {
+export default function InsightsView({ tickets = [], evaluationSummary, now = Date.now() }) {
   const live = tickets.filter(processed);
-  const labelled = live.filter((ticket) => ticket.truthIntent && ticket.truthIntent !== "Unlabelled");
+  // Seeded snapshots are labelled with their own output, so only live model
+  // results can be scored against labels.
+  const labelled = live.filter((ticket) => ticket.source === "groq" && ticket.truthIntent && ticket.truthIntent !== "Unlabelled");
   const sampleLabel = `${live.length} processed conversation${live.length === 1 ? "" : "s"}`;
   const dateValues = live.map((ticket) => ticket.createdAt || ticket.created_at).filter(Boolean).map((value) => new Date(value)).filter((date) => !Number.isNaN(date.valueOf()));
   const dateRange = dateValues.length ? `${dateFormatter.format(new Date(Math.min(...dateValues)))} to ${dateFormatter.format(new Date(Math.max(...dateValues)))}` : "Current demo dataset";
 
   const bands = [[0, 60], [60, 70], [70, 80], [80, 90], [90, 101]].map(([min, max]) => {
     const rows = labelled.filter((ticket) => finite(ticket.confidence) * 100 >= min && finite(ticket.confidence) * 100 < max);
-    const correct = rows.filter((ticket) => ticket.intent === ticket.truthIntent && ticket.urgency === ticket.truthUrgency).length;
+    const correct = rows.filter((ticket) => modelValue(ticket, "intent") === ticket.truthIntent && modelValue(ticket, "urgency") === ticket.truthUrgency).length;
     const confidence = rows.length ? Math.round(rows.reduce((sum, ticket) => sum + finite(ticket.confidence), 0) / rows.length * 100) : 0;
     const accuracy = rows.length ? Math.round(correct / rows.length * 100) : 0;
     const gap = rows.length ? Math.abs(confidence - accuracy) : null;
@@ -44,16 +49,17 @@ export default function InsightsView({ tickets = [], evaluationSummary }) {
     const key = ticket.truthIntent;
     const group = groups[key] || { name: key, total: 0, correct: 0 };
     group.total += 1;
-    group.correct += Number(ticket.intent === ticket.truthIntent);
+    group.correct += Number(modelValue(ticket, "intent") === ticket.truthIntent);
     groups[key] = group;
     return groups;
   }, {})).map((group) => ({ name: group.name, accuracy: Math.round(group.correct / group.total * 100), cases: group.total })).sort((a, b) => b.cases - a.cases).slice(0, 6);
 
-  const byTeam = Object.values(labelled.reduce((groups, ticket) => {
-    const key = ticket.route || "Unassigned";
+  // Only tickets with an expected route can be scored; none are assumed correct.
+  const byTeam = Object.values(labelled.filter((ticket) => ticket.truthRoute).reduce((groups, ticket) => {
+    const key = ticket.truthRoute;
     const group = groups[key] || { name: key, total: 0, correct: 0 };
     group.total += 1;
-    group.correct += Number(ticket.route === ticket.truthRoute || !ticket.truthRoute);
+    group.correct += Number(modelValue(ticket, "route") === ticket.truthRoute);
     groups[key] = group;
     return groups;
   }, {})).map((group) => ({ name: group.name, accuracy: Math.round(group.correct / group.total * 100), cases: group.total })).sort((a, b) => b.cases - a.cases).slice(0, 6);
@@ -61,11 +67,7 @@ export default function InsightsView({ tickets = [], evaluationSummary }) {
   const humanOwned = live.filter((ticket) => ticket.escalated || ticket.lifecycle?.state === "review_required").length;
   const humanRate = live.length ? Math.round(humanOwned / live.length * 100) : 0;
   const automated = Math.max(0, live.length - humanOwned);
-  const slaRisk = tickets.filter((ticket) => {
-    if (["Approved", "Auto-approved"].includes(ticket.status)) return false;
-    const target = { critical: 24, high: 48, medium: 120, low: 240 }[ticket.urgency] || 120;
-    return target - finite(ticket.minutesAgo) <= Math.max(12, target * .2);
-  }).length;
+  const slaRisk = tickets.filter((ticket) => slaState(ticket, now)).length;
 
   const volumes = Object.entries(live.reduce((groups, ticket) => {
     const value = ticket.createdAt || ticket.created_at;
@@ -78,7 +80,8 @@ export default function InsightsView({ tickets = [], evaluationSummary }) {
 
   const corrections = [
     { name: "Incorrect specialist route", value: finite(evaluationSummary?.routing_corrections) },
-    { name: "Draft needed editing", value: Math.round(finite(evaluationSummary?.draft_edit_rate) * finite(evaluationSummary?.feedback_count)) },
+    { name: "Wrong issue type", value: finite(evaluationSummary?.intent_corrections) },
+    { name: "Draft needed editing", value: finite(evaluationSummary?.draft_edits) },
     { name: "Urgency changed", value: finite(evaluationSummary?.urgency_corrections) }
   ];
   const maxCorrections = Math.max(1, ...corrections.map((item) => item.value));
@@ -93,7 +96,7 @@ export default function InsightsView({ tickets = [], evaluationSummary }) {
       <section className="insight-summary-strip" aria-label="Operational summary">
         <div><span>Human intervention</span><strong>{live.length ? `${humanRate}%` : "No sample"}</strong><small>{sampleLabel}</small></div>
         <div><span>Draft edit rate</span><strong>{percent(evaluationSummary?.draft_edit_rate)}</strong><small>{finite(evaluationSummary?.feedback_count)} reviewed responses</small></div>
-        <div><span>SLA at risk</span><strong>{slaRisk}</strong><small>{tickets.length} open and recent conversations</small></div>
+        <div><span>SLA at risk</span><strong>{slaRisk}</strong><small>{tickets.filter((ticket) => ticket.lifecycle?.state !== "resolved").length} open conversations</small></div>
       </section>
 
       <section className="insight-calibration" aria-labelledby="calibration-title">
@@ -131,7 +134,7 @@ export default function InsightsView({ tickets = [], evaluationSummary }) {
 
         <section className="insight-visual" aria-labelledby="issue-title">
           <header><h3 id="issue-title">Accuracy by issue</h3><span>{labelled.length} labelled</span></header>
-          <RankedBars rows={byIntent} emptyMessage="Add expected issue labels to compare classification accuracy." />
+          <RankedBars rows={byIntent} emptyMessage="Run live AI on labelled conversations to measure classification accuracy." />
         </section>
 
         <section className="insight-visual" aria-labelledby="team-title">

@@ -8,7 +8,6 @@ from fastapi import HTTPException
 from .config import Settings
 from .database import Database
 
-
 ROLE_LEVEL = {"support_agent": 1, "support_manager": 2, "admin": 3}
 
 

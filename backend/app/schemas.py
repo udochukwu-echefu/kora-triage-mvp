@@ -108,6 +108,14 @@ class AutomationPolicyResult(RequestModel):
     eligible: bool
     reason: str = Field(min_length=1, max_length=500)
     code: str = Field(min_length=1, max_length=80)
+    simulated: bool = False
+
+
+class CaseTriageRequest(RequestModel):
+    """Re-run triage for a stored case; content always comes from the database."""
+
+    case_id: str = Field(min_length=1, max_length=80)
+    customer_id: str = Field(min_length=1, max_length=80)
 
 
 class TriageResult(RequestModel):
@@ -166,6 +174,9 @@ class InboundMessageRequest(RequestModel):
     message: str = Field(min_length=1, max_length=8000)
     subject: str | None = Field(default=None, max_length=500)
     external_thread_id: str | None = Field(default=None, max_length=300)
+    # Email only: the RFC 5322 Message-ID and every References/In-Reply-To id.
+    rfc_message_id: str | None = Field(default=None, max_length=998)
+    references: list[str] = Field(default_factory=list, max_length=50)
 
 
 class FeedbackRequest(RequestModel):
@@ -232,6 +243,11 @@ class ManualAssessmentRequest(RequestModel):
     urgency: Urgency
     route: Route
     response: str = Field(min_length=2, max_length=1200)
+
+
+class TeamAvailabilityRequest(RequestModel):
+
+    availability: str = Field(pattern="^(Online|Busy|Away|Offline)$")
 
 
 class ProofExpected(RequestModel):

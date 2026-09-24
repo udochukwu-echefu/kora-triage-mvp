@@ -3,37 +3,52 @@ from __future__ import annotations
 from .database import Database
 
 
+def _model_value(ticket: dict, field: str) -> str | None:
+    """The model's own prediction, unaffected by later human corrections."""
+    model_field = f"model{field[0].upper()}{field[1:]}"
+    return ticket.get(model_field, ticket.get(field))
+
+
 def evaluation_summary(database: Database, tenant_id: str = "tenant-demo") -> dict:
     tickets = [
         item
         for item in database.support_tickets(tenant_id)
         if item.get("source") not in (None, "pending")
     ]
+    # Accuracy is only meaningful for live model output against independent
+    # labels. Seeded snapshots are excluded: their labels were derived from the
+    # snapshot itself, so they would always score as correct.
     labelled = [
         item
         for item in tickets
-        if item.get("truthIntent") != "Unlabelled"
-        and item.get("truthUrgency") != "unlabelled"
+        if item.get("source") == "groq"
+        and item.get("truthIntent") not in (None, "Unlabelled")
+        and item.get("truthUrgency") not in (None, "unlabelled")
     ]
     feedback = database.feedback(tenant_id)
     intent_accuracy = (
-        sum(item["intent"] == item["truthIntent"] for item in labelled) / len(labelled)
+        sum(_model_value(item, "intent") == item["truthIntent"] for item in labelled) / len(labelled)
         if labelled
         else None
     )
     urgency_accuracy = (
-        sum(item["urgency"] == item["truthUrgency"] for item in labelled) / len(labelled)
+        sum(_model_value(item, "urgency") == item["truthUrgency"] for item in labelled) / len(labelled)
         if labelled
         else None
     )
-    route_corrections = sum(
-        bool(item["corrected"].get("route"))
-        and item["corrected"].get("route") != item["predicted"].get("route")
-        for item in feedback
-    )
+
+    def corrections(field: str) -> int:
+        return sum(
+            bool(item["corrected"].get(field))
+            and item["corrected"].get(field) != item["predicted"].get(field)
+            for item in feedback
+        )
+
+    route_corrections = corrections("route")
     draft_feedback = [item for item in feedback if item["response_accepted"] is not None]
     return {
         "processed": len(tickets),
+        "live_processed": sum(item.get("source") == "groq" for item in tickets),
         "labelled": len(labelled),
         "feedback_count": len(feedback),
         "intent_accuracy": intent_accuracy,
@@ -43,7 +58,11 @@ def evaluation_summary(database: Database, tenant_id: str = "tenant-demo") -> di
             if intent_accuracy is not None and urgency_accuracy is not None
             else None
         ),
+        "routing_corrections": route_corrections,
+        "intent_corrections": corrections("intent"),
+        "urgency_corrections": corrections("urgency"),
         "routing_correction_rate": route_corrections / len(feedback) if feedback else 0,
+        "draft_edits": sum(bool(item["response_edited"]) for item in draft_feedback),
         "draft_edit_rate": (
             sum(bool(item["response_edited"]) for item in draft_feedback)
             / len(draft_feedback)

@@ -7,7 +7,6 @@ from groq import AsyncGroq
 
 from .schemas import ModelTriage, TriageRequest
 
-
 SYSTEM_PROMPT = """
 You are the triage model for Kora, a Nigerian fintech and e-commerce support operation.
 

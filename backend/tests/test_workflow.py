@@ -12,13 +12,13 @@ from fastapi import HTTPException
 from app import main
 from app.auth import resolve_principal, token_hash
 from app.benchmark import score_predictions
-from app.run_evaluation import SMOKE_CASE_IDS, _measurement_summary
 from app.channels import ChannelGateway
 from app.config import Settings
 from app.database import Database
 from app.demo_seed import seed_demo_data
 from app.evaluation import evaluation_summary, regression_gate
 from app.evaluation_dataset import GOLD_CASES, dataset_summary
+from app.run_evaluation import SMOKE_CASE_IDS, _measurement_summary
 from app.schemas import (
     CustomerContext,
     ExtractedEntities,
@@ -30,8 +30,8 @@ from app.schemas import (
     TriageRequest,
     Urgency,
 )
-from app.triage_policy import apply_operational_policy
 from app.service import TriageService
+from app.triage_policy import apply_operational_policy
 from app.workflow import SupportWorkflow, WorkflowWorker
 
 

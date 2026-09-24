@@ -1,7 +1,50 @@
 const JSON_HEADERS = { "Content-Type": "application/json" };
+const TOKEN_KEY = "kora_token";
+export const UNAUTHORIZED_EVENT = "kora:unauthorized";
+
+// Session storage by default; local storage only when the user asks to be remembered.
+export function getToken() {
+  try {
+    return window.sessionStorage.getItem(TOKEN_KEY) || window.localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setToken(token, remember = false) {
+  try {
+    clearToken();
+    (remember ? window.localStorage : window.sessionStorage).setItem(TOKEN_KEY, token);
+  } catch {
+    /* Storage can be unavailable in private windows; the session then lasts one page load. */
+  }
+}
+
+export function clearToken() {
+  try {
+    window.sessionStorage.removeItem(TOKEN_KEY);
+    window.localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* Nothing stored. */
+  }
+}
+
+export class ApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function detailMessage(detail, status) {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail) && detail.length) return detail.map((item) => item.msg || String(item)).join("; ");
+  if (status === 429) return "Too many requests. Please wait a moment and try again.";
+  return `Request failed with status ${status}`;
+}
 
 async function api(path, options = {}) {
-  const token = window.localStorage.getItem("kora_token");
+  const token = getToken();
   const response = await fetch(path, {
     ...options,
     headers: {
@@ -12,217 +55,81 @@ async function api(path, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.detail || `Request failed with status ${response.status}`);
+    if (response.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    throw new ApiError(detailMessage(payload.detail, response.status), response.status);
   }
   return payload;
 }
 
-export function getBackendHealth() {
-  return api("/api/health");
-}
+const post = (path, body, method = "POST") => api(path, { method, body: JSON.stringify(body) });
+const casePath = (ticket, action) => `/api/cases/${encodeURIComponent(ticket.id)}/${action}`;
 
-export function getBackendAudit(limit = 100) {
-  return api(`/api/audit?limit=${encodeURIComponent(limit)}`);
-}
+export const getBackendHealth = () => api("/api/health");
+export const getBackendAudit = (limit = 100) => api(`/api/audit?limit=${encodeURIComponent(limit)}`);
+export const getCases = () => api("/api/cases");
+export const getCurrentUser = () => api("/api/auth/me");
+export const getIntegrations = () => api("/api/integrations");
+export const getEvaluationSummary = () => api("/api/evaluations/summary");
+export const getEvaluationGate = () => api("/api/evaluations/gate");
+export const getJobs = (limit = 100) => api(`/api/jobs?limit=${encodeURIComponent(limit)}`);
+export const getCaseConversation = (caseId) => api(`/api/cases/${encodeURIComponent(caseId)}/conversation`);
+export const getPolicies = () => api("/api/policies");
+export const createPolicy = (policy) => post("/api/policies", policy);
+export const setPolicyState = (policyId, active) => post(`/api/policies/${encodeURIComponent(policyId)}/state`, { active }, "PUT");
+export const getProofRuns = () => api("/api/proof-runs");
+export const createProofRun = (run) => post("/api/proof-runs", run);
+export const getTeam = () => api("/api/team");
+export const setTeamAvailability = (memberId, availability) => post(`/api/team/${encodeURIComponent(memberId)}/availability`, { availability }, "PUT");
+export const getAutomationSettings = () => api("/api/settings/automation");
+export const updateAutomationSettings = (settings) => post("/api/settings/automation", settings, "PUT");
+export const getCustomerMemory = (customerId) => api(`/api/customers/${encodeURIComponent(customerId)}/memory`);
 
-export function getCases() {
-  return api("/api/cases");
-}
+export const updateCaseAssignment = (caseId, assignee, expectedAssignee = null) =>
+  post(`/api/cases/${encodeURIComponent(caseId)}/assignment`, { assignee, expected_assignee: expectedAssignee }, "PUT");
 
-export function getCurrentUser() {
-  return api("/api/auth/me");
-}
+export const addCaseNote = (caseId, body, mentions = []) =>
+  post(`/api/cases/${encodeURIComponent(caseId)}/notes`, { body, mentions });
 
-export function getIntegrations() {
-  return api("/api/integrations");
-}
+export const verifyPaystackTransaction = (ticket, reference) =>
+  post(casePath(ticket, "verify-transaction"), { customer_id: ticket.customerId, reference });
 
-export function getEvaluationSummary() {
-  return api("/api/evaluations/summary");
-}
-
-export function getEvaluationGate() {
-  return api("/api/evaluations/gate");
-}
-
-export function getJobs(limit = 100) {
-  return api(`/api/jobs?limit=${encodeURIComponent(limit)}`);
-}
-
-export function getCaseConversation(caseId) {
-  return api(`/api/cases/${encodeURIComponent(caseId)}/conversation`);
-}
-
-export function getPolicies() {
-  return api("/api/policies");
-}
-
-export function createPolicy(policy) {
-  return api("/api/policies", {
-    method: "POST",
-    body: JSON.stringify(policy)
+export const saveManualAssessment = (ticket, assessment) =>
+  post(casePath(ticket, "manual-assessment"), {
+    customer_id: ticket.customerId,
+    intent: assessment.intent,
+    urgency: assessment.urgency,
+    route: assessment.route,
+    response: assessment.response
   });
-}
 
-export function setPolicyState(policyId, active) {
-  return api(`/api/policies/${encodeURIComponent(policyId)}/state`, {
-    method: "PUT",
-    body: JSON.stringify({ active })
+// The server re-reads the case; only identifiers are sent.
+export const runGroqTriage = (ticket) => post("/api/triage", { case_id: ticket.id, customer_id: ticket.customerId });
+
+export const recordCaseAction = (ticket, action, response = null, note = null, options = {}) =>
+  post(casePath(ticket, action), {
+    customer_id: ticket.customerId,
+    note,
+    response,
+    require_automation_eligible: Boolean(options.requireAutomationEligible)
   });
-}
 
-export function getProofRuns() {
-  return api("/api/proof-runs");
-}
-
-export function createProofRun(run) {
-  return api("/api/proof-runs", {
-    method: "POST",
-    body: JSON.stringify(run)
+export const recordSensitiveReveal = (ticket) =>
+  post(casePath(ticket, "sensitive-reveal"), {
+    customer_id: ticket.customerId,
+    note: "Agent revealed masked customer information"
   });
-}
 
-export function updateCaseAssignment(caseId, assignee, expectedAssignee = null) {
-  return api(`/api/cases/${encodeURIComponent(caseId)}/assignment`, {
-    method: "PUT",
-    body: JSON.stringify({
-      assignee,
-      expected_assignee: expectedAssignee
-    })
+export const recordCaseRoute = (ticket, team) => post(casePath(ticket, "route"), { customer_id: ticket.customerId, team });
+
+export const recordCaseFeedback = (ticket, feedback) =>
+  post(casePath(ticket, "feedback"), {
+    customer_id: ticket.customerId,
+    corrected_intent: feedback.intent || null,
+    corrected_urgency: feedback.urgency || null,
+    corrected_route: feedback.route || null,
+    response_accepted: feedback.responseAccepted ?? null,
+    reason: feedback.reason || null
   });
-}
 
-export function getCaseNotes(caseId) {
-  return api(`/api/cases/${encodeURIComponent(caseId)}/notes`);
-}
-
-export function addCaseNote(caseId, body, mentions = []) {
-  return api(`/api/cases/${encodeURIComponent(caseId)}/notes`, {
-    method: "POST",
-    body: JSON.stringify({ body, mentions })
-  });
-}
-
-export function verifyPaystackTransaction(ticket, reference) {
-  return api(`/api/cases/${encodeURIComponent(ticket.id)}/verify-transaction`, {
-    method: "POST",
-    body: JSON.stringify({
-      customer_id: ticket.customerId,
-      reference
-    })
-  });
-}
-
-export function saveManualAssessment(ticket, assessment) {
-  return api(`/api/cases/${encodeURIComponent(ticket.id)}/manual-assessment`, {
-    method: "POST",
-    body: JSON.stringify({
-      customer_id: ticket.customerId,
-      intent: assessment.intent,
-      urgency: assessment.urgency,
-      route: assessment.route,
-      response: assessment.response
-    })
-  });
-}
-
-export function getAutomationSettings() {
-  return api("/api/settings/automation");
-}
-
-export function updateAutomationSettings(settings) {
-  return api("/api/settings/automation", {
-    method: "PUT",
-    headers: JSON_HEADERS,
-    body: JSON.stringify(settings)
-  });
-}
-
-export function getCustomerMemory(customerId) {
-  return api(`/api/customers/${encodeURIComponent(customerId)}/memory`);
-}
-
-export function runGroqTriage(ticket) {
-  return api("/api/triage", {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      case_id: ticket.id,
-      channel: ticket.channel,
-      message: ticket.message,
-      subject: ticket.subject || null,
-      customer: {
-        customer_id: ticket.customerId,
-        name: ticket.customer.name,
-        previous_context: ticket.customer.previousContext || "",
-        notes: ticket.customer.notes || []
-      }
-    })
-  });
-}
-
-export function recordCaseAction(ticket, action, response = null, note = null, options = {}) {
-  return api(`/api/cases/${encodeURIComponent(ticket.id)}/${action}`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      actor: "Ada Okafor",
-      customer_id: ticket.customerId,
-      note,
-      response,
-      require_automation_eligible: Boolean(options.requireAutomationEligible)
-    })
-  });
-}
-
-export function recordSensitiveReveal(ticket) {
-  return api(`/api/cases/${encodeURIComponent(ticket.id)}/sensitive-reveal`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      actor: "Ada Okafor",
-      customer_id: ticket.customerId,
-      note: "Agent revealed masked customer information"
-    })
-  });
-}
-
-export function recordCaseRoute(ticket, team) {
-  return api(`/api/cases/${encodeURIComponent(ticket.id)}/route`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      actor: "Ada Okafor",
-      customer_id: ticket.customerId,
-      team
-    })
-  });
-}
-
-export function recordCaseFeedback(ticket, feedback) {
-  return api(`/api/cases/${encodeURIComponent(ticket.id)}/feedback`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      actor: "Ada Okafor",
-      customer_id: ticket.customerId,
-      corrected_intent: feedback.intent || null,
-      corrected_urgency: feedback.urgency || null,
-      corrected_route: feedback.route || null,
-      response_accepted: feedback.responseAccepted ?? null,
-      reason: feedback.reason || null
-    })
-  });
-}
-
-export function resolveCase(ticket, resolution) {
-  return api(`/api/cases/${encodeURIComponent(ticket.id)}/resolve`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({
-      actor: "Ada Okafor",
-      customer_id: ticket.customerId,
-      resolution
-    })
-  });
-}
+export const resolveCase = (ticket, resolution) =>
+  post(casePath(ticket, "resolve"), { customer_id: ticket.customerId, resolution });

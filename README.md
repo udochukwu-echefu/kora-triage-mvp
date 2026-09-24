@@ -4,9 +4,11 @@
 
 A support-triage portfolio demonstration for a Nigerian fintech or e-commerce SMB. The public deployment uses synthetic data, demo authentication, and simulated delivery; it is not connected to a real support operation.
 
-**Evidence:** [architecture](docs/architecture.md) · [evaluation methodology](docs/evaluation.md) · [11-case live smoke report](evidence/live-smoke-report.json) · [failure examples](docs/failure-examples.md) · [limitations](docs/limitations.md) · [150-test summary](evidence/test-summary.json)
+**Evidence:** [architecture](docs/architecture.md) · [evaluation methodology](docs/evaluation.md) · [11-case live smoke report](evidence/live-smoke-report.json) · [failure examples](docs/failure-examples.md) · [limitations](docs/limitations.md) · [test summary](evidence/test-summary.json)
 
-Latest verification: 150 backend tests pass. A fresh 11-case synthetic Groq smoke run on 8 August 2026 passed 11/11 with 13.669-second median latency, 16.605-second p95 latency, and 22,275 total tokens. These are demo measurements, not customer-traffic evidence.
+Latest verification: 255 backend tests and 17 frontend tests pass, lint is clean, and `npm audit` reports no vulnerabilities.
+
+The 11-case Groq smoke run from 8 August 2026 (11/11, 13.669-second median latency) was produced while the deterministic policy rules still contained phrases copied from the evaluation set. Treat that score as superseded. The rules have since been generalised, a test now blocks copied phrases, and reports show model-only accuracy next to model-plus-policy accuracy. Re-run `npm run evaluate:smoke` to refresh the evidence. These are demo measurements, not customer-traffic evidence.
 
 ## Product capabilities
 
@@ -37,13 +39,14 @@ Latest verification: 150 backend tests pass. A fresh 11-case synthetic Groq smok
 
 ## Frontend stack
 
-- React and Vite
+- React and Vite, with the landing page and each workspace view code-split
 - Tailwind CSS with custom OKLCH theme tokens
 - shadcn-style local components customized for this product
-- Radix UI dropdowns and tooltips
-- Recharts for operational charts
+- Radix UI dropdowns, selects, popovers, and tooltips
+- CSS-only operational charts
 - Lucide React icons
 - Self-hosted Elms Sans Variable font through Fontsource
+- Vitest for shared ticket logic and ESLint for the React code
 
 ## Run locally
 
@@ -52,6 +55,7 @@ npm install
 npm run backend:setup
 cp backend/.env.example backend/.env
 npm test
+npm run lint
 npm run dev
 ```
 
@@ -65,9 +69,9 @@ npm run build
 npm run preview
 ```
 
-The first run seeds 18 labelled, fully processed model snapshots into SQLite so the queue, insights, routing mix, memory, and audit views are immediately useful. These records are clearly labelled **Model snapshot** in the interface and can be refreshed through Groq with **Refresh with live AI**. There is no local classification fallback for new live requests. Before a Groq request, the backend redacts phone numbers, email addresses, full account numbers, customer names, and identifiers embedded in customer notes. Fraud, critical urgency, hostile sentiment, low confidence, unsafe credential requests, invented external actions, and unverified completion claims are handled by deterministic guardrails.
+In demo mode the first run seeds 18 labelled, fully processed model snapshots into SQLite so the queue, routing mix, memory, and audit views are immediately useful. Their labels come from the snapshots themselves, so accuracy metrics only count live Groq results. Human corrections update the displayed classification but never count as model accuracy. These records are clearly labelled **Model snapshot** in the interface and can be refreshed through Groq with **Refresh with live AI**. There is no local classification fallback for new live requests. Before a Groq request, the backend redacts phone numbers, email addresses, full account numbers, customer names, and identifiers embedded in customer notes. Fraud, critical urgency, hostile sentiment, low confidence, unsafe credential requests, invented external actions, and unverified completion claims are handled by deterministic guardrails.
 
-The dashboard calculates live intent-and-urgency accuracy against the labelled synthetic dataset and estimates handling-time savings against the configurable `KORA_MANUAL_BASELINE_MINUTES` baseline. The Audit tab loads persisted model and human decisions from SQLite and can export them as CSV. Customer memory is deduplicated by customer and case before it is supplied to Groq.
+The dashboard calculates intent-and-urgency accuracy for live model results against labelled conversations and estimates handling-time savings against the configurable `KORA_MANUAL_BASELINE_MINUTES` baseline. The Audit tab loads persisted model and human decisions from SQLite and can export them as CSV. Customer memory is deduplicated by customer and case before it is supplied to Groq.
 
 Run the live 100-case model benchmark separately from the demonstration queue:
 
@@ -102,10 +106,11 @@ Approved policies are managed in **Settings**. Matching is tenant-scoped and
 transparent: Kora includes the matched title, version, excerpt, and source URL
 in the decision record. Customer-supplied notes are never trusted as policy.
 
-**Proof mode** runs historical JSON cases through the same live model, policy,
-and guardrail path under an isolated proof tenant. Proof cases are not inserted
-into the support queue and no delivery job is created, including for
-high-confidence results.
+**Proof mode** runs historical JSON or CSV cases through the same live model,
+policy, and guardrail path under a proof tenant isolated per run, in the
+background with bounded concurrency. It reports how many cases the active
+thresholds *would* auto-approve (simulated, never acted on). Proof cases are
+not inserted into the support queue and no delivery job is created.
 
 Set `PAYSTACK_SECRET_KEY` to enable read-only transaction verification. Kora
 only verifies the reference already extracted and audited for the selected
@@ -134,7 +139,13 @@ KORA_MANUAL_BASELINE_MINUTES=12
 KORA_AUTH_MODE=demo
 KORA_CHANNEL_MODE=demo
 KORA_WEBHOOK_TOKEN=replace-with-a-long-random-value
+KORA_TRUST_PROXY_HEADERS=true
 ```
+
+The container runs as an unprivileged user; its entrypoint takes ownership of
+the mounted database directory first. For a non-demo deployment set
+`KORA_AUTH_MODE=required`, issue tokens with `python -m app.manage
+create-token` (see `backend/README.md`), and leave `KORA_SEED_DEMO_DATA` unset.
 
 Attach a Railway volume at `/data` before relying on customer memory or the
 audit trail. Keep the service at one replica while it uses SQLite. Configure the

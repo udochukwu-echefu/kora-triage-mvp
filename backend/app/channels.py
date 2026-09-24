@@ -56,7 +56,8 @@ class ChannelGateway:
         recipient: str,
         body: str,
         subject: str | None,
-        external_thread_id: str | None,
+        in_reply_to: str | None = None,
+        references: list[str] | None = None,
     ) -> DeliveryResult:
         if self.settings.channel_mode == "demo":
             return DeliveryResult(
@@ -69,7 +70,8 @@ class ChannelGateway:
                 recipient=recipient,
                 body=body,
                 subject=subject,
-                external_thread_id=external_thread_id,
+                in_reply_to=in_reply_to,
+                references=references or [],
             )
         if channel == "whatsapp":
             return await self._send_whatsapp(recipient=recipient, body=body)
@@ -81,7 +83,8 @@ class ChannelGateway:
         recipient: str,
         body: str,
         subject: str | None,
-        external_thread_id: str | None,
+        in_reply_to: str | None,
+        references: list[str],
     ) -> DeliveryResult:
         if not self.settings.postmark_server_token or not self.settings.postmark_from_email:
             raise RuntimeError("Postmark is not configured")
@@ -93,11 +96,21 @@ class ChannelGateway:
             "MessageStream": "outbound",
             "Tag": "kora-support",
         }
-        if external_thread_id:
-            payload["Headers"] = [
-                {"Name": "In-Reply-To", "Value": external_thread_id},
-                {"Name": "References", "Value": external_thread_id},
-            ]
+        # Mail clients thread on RFC Message-IDs, which must be angle-bracketed.
+        def bracket(value: str) -> str:
+            value = value.strip().strip("<>")
+            return f"<{value}>"
+
+        headers = []
+        if in_reply_to:
+            headers.append({"Name": "In-Reply-To", "Value": bracket(in_reply_to)})
+        chain = [bracket(value) for value in references if value]
+        if in_reply_to and bracket(in_reply_to) not in chain:
+            chain.append(bracket(in_reply_to))
+        if chain:
+            headers.append({"Name": "References", "Value": " ".join(chain)})
+        if headers:
+            payload["Headers"] = headers
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.post(
                 "https://api.postmarkapp.com/email",

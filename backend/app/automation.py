@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 HIGH_RISK_INTENTS = {
     "Fraud report",
     "Duplicate debit",

@@ -1,8 +1,12 @@
 {
   "status": "passed",
-  "test_cases": 150,
-  "command": "PYTHONPATH=backend pytest -q backend/tests",
-  "scope": "Backend, policy, privacy, persistence, workflow, security, and integration behavior",
+  "backend_test_cases": 255,
+  "frontend_test_cases": 17,
+  "commands": [
+    "PYTHONPATH=backend pytest -q backend/tests",
+    "npm run test:frontend"
+  ],
+  "scope": "Backend policy, privacy, approval integrity, persistence, tenancy, workflow reliability, webhooks, rate limits; frontend SLA, masking and CSV logic",
   "data": "Synthetic",
-  "note": "100 parameterized gold-policy cases plus 50 additional test cases"
+  "note": "Includes 100 parameterized gold-policy cases, a guard against evaluation phrases in policy rules, and paraphrase cases outside the gold set"
 }

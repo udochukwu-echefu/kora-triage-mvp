@@ -16,5 +16,9 @@ export default defineConfig({
     port: 4173,
     proxy: apiProxy
   },
-  preview: { port: 4173, proxy: apiProxy }
+  preview: { port: 4173, proxy: apiProxy },
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.js"]
+  }
 });

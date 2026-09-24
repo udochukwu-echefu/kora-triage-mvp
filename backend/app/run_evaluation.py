@@ -17,7 +17,6 @@ from .schemas import CustomerContext, TriageRequest
 from .service import _redacted_request
 from .triage_policy import apply_operational_policy
 
-
 SMOKE_CASE_IDS = (
     "EVAL-TRANSFER-01-01",
     "EVAL-PAYMENT-01-03",
@@ -165,6 +164,9 @@ async def run(
         cases = cases[:limit]
     model = GroqTriageModel(settings.groq_api_key, settings.groq_model)
     predictions: dict[str, dict] = {}
+    # Raw model output before the deterministic policy layer, so the report can
+    # show how much of the score comes from the model versus the rules.
+    raw_predictions: dict[str, dict] = {}
     measurements: dict[str, dict] = {}
     errors: list[dict] = []
     if resume and checkpoint_path and checkpoint_path.exists():
@@ -175,6 +177,7 @@ async def run(
                 "or resume with the same model."
             )
         predictions.update(checkpoint.get("predictions", {}))
+        raw_predictions.update(checkpoint.get("raw_predictions", {}))
         measurements.update(checkpoint.get("measurements", {}))
     started_at = datetime.now(UTC).isoformat()
     started = perf_counter()
@@ -199,8 +202,9 @@ async def run(
         safe_request, deterministic = _redacted_request(request)
         case_started = perf_counter()
         try:
-            result, usage = await model.classify_with_metadata(safe_request, [])
-            result = apply_operational_policy(safe_request, result).triage
+            raw_result, usage = await model.classify_with_metadata(safe_request, [])
+            raw_predictions[case.case_id] = _prediction(raw_result)
+            result = apply_operational_policy(safe_request, raw_result).triage
             if deterministic.get("account_last4") and not result.entities.account_last4:
                 result = result.model_copy(
                     update={
@@ -239,6 +243,7 @@ async def run(
                             {
                                 "model": settings.groq_model,
                                 "predictions": predictions,
+                                "raw_predictions": raw_predictions,
                                 "measurements": measurements,
                             },
                             indent=2,
@@ -259,6 +264,7 @@ async def run(
                     {
                         "model": settings.groq_model,
                         "predictions": predictions,
+                        "raw_predictions": raw_predictions,
                         "measurements": measurements,
                     },
                     indent=2,
@@ -271,6 +277,16 @@ async def run(
             await asyncio.sleep(delay)
 
     report = score_predictions(cases, predictions)
+    model_only = score_predictions(
+        [case for case in cases if case.case_id in raw_predictions], raw_predictions
+    )
+    report["model_only"] = {
+        key: model_only.get(key)
+        for key in (
+            "processed", "intent_accuracy", "urgency_accuracy", "route_accuracy",
+            "combined_accuracy", "entity_required_accuracy",
+        )
+    }
     report.update(
         {
             "run": {

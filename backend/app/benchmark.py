@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from typing import Iterable
+from collections.abc import Iterable
 
 from .evaluation_dataset import GoldCase
-
 
 ENTITY_FIELDS = ("amount", "transactionId", "orderId", "account", "card")
 DEFAULT_THRESHOLDS = {

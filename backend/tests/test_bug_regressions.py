@@ -40,9 +40,8 @@ def ingest(
     )
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("prior_model_decision", [False, True])
-async def test_manual_assessment_can_be_approved_without_using_old_model_draft(
+def test_manual_assessment_can_be_approved_without_using_old_model_draft(
     database, prior_model_decision
 ):
     case = ingest(database)
@@ -55,7 +54,7 @@ async def test_manual_assessment_can_be_approved_without_using_old_model_draft(
             guardrails={"escalated": True}, actor="groq-model",
         )
     draft = "Account Support will review your access issue."
-    await main.manual_assessment(
+    main.manual_assessment(
         case["case_id"],
         ManualAssessmentRequest(
             customer_id=case["customer_id"], intent="Account access",
@@ -65,13 +64,13 @@ async def test_manual_assessment_can_be_approved_without_using_old_model_draft(
     )
     # Manual decisions must stay out of bulk automation even after human review.
     with pytest.raises(HTTPException) as error:
-        await main.approve(
+        main.approve(
             case["case_id"],
             ActionRequest(customer_id=case["customer_id"], require_automation_eligible=True),
             principal,
         )
     assert error.value.status_code == 409
-    approved = await main.approve(
+    approved = main.approve(
         case["case_id"], ActionRequest(customer_id=case["customer_id"]), principal
     )
     assert approved["status"] == "approved"
