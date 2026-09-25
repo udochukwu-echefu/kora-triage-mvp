@@ -11,8 +11,9 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import main, triage_policy
+from app import triage_policy
 from app.api import deps
+from app.api.routers import case_actions
 from app.auth import Principal
 from app.config import Settings
 from app.database import Database
@@ -91,7 +92,7 @@ def triaged_case(
 
 def test_client_note_cannot_label_a_manual_approval_as_automated(database):
     case = triaged_case(database)
-    result = main.approve(
+    result = case_actions.approve(
         case["case_id"],
         ActionRequest(customer_id=case["customer_id"], note="confidence_policy_auto_approve"),
         AGENT,
@@ -115,16 +116,16 @@ def test_client_note_cannot_label_a_manual_approval_as_automated(database):
 def test_edited_replies_get_the_same_guardrails_as_ai_drafts(database, reply):
     case = triaged_case(database)
     with pytest.raises(HTTPException) as error:
-        main.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"], response=reply), AGENT)
+        case_actions.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"], response=reply), AGENT)
     assert error.value.status_code == 422
     assert not database.audit_event_exists(case["case_id"], "human_approved")
 
 
 def test_a_case_cannot_be_approved_twice(database):
     case = triaged_case(database)
-    main.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"]), AGENT)
+    case_actions.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"]), AGENT)
     with pytest.raises(HTTPException) as error:
-        main.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"]), AGENT)
+        case_actions.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"]), AGENT)
     assert error.value.status_code == 409
 
 
@@ -134,7 +135,7 @@ def test_concurrent_live_approvals_queue_exactly_one_send(database, monkeypatch)
 
     def attempt(_):
         try:
-            return main.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"]), AGENT)
+            return case_actions.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"]), AGENT)
         except HTTPException as error:
             return error.status_code
 
@@ -151,14 +152,14 @@ def test_escalated_case_needs_assigned_specialist_or_manager_and_a_note(database
     case = triaged_case(database, escalated=True)
     request = ActionRequest(customer_id=case["customer_id"], note="Verified with the fraud team; safe to acknowledge.")
     with pytest.raises(HTTPException) as unassigned:
-        main.approve(case["case_id"], request, OTHER_AGENT)
+        case_actions.approve(case["case_id"], request, OTHER_AGENT)
     assert unassigned.value.status_code == 409
     with pytest.raises(HTTPException) as no_note:
-        main.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"]), MANAGER)
+        case_actions.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"]), MANAGER)
     assert no_note.value.status_code == 422
 
     database.claim_case(case["case_id"], tenant_id="tenant-demo", assignee="Test Agent")
-    approved = main.approve(case["case_id"], request, AGENT)
+    approved = case_actions.approve(case["case_id"], request, AGENT)
     assert approved["status"] == "approved"
     audit = next(item for item in database.audits() if item["event_type"] == "human_approved")
     assert audit["decision"]["guardrail_override"] is True
@@ -167,7 +168,7 @@ def test_escalated_case_needs_assigned_specialist_or_manager_and_a_note(database
 def test_bulk_approval_still_never_overrides_a_guardrail(database):
     case = triaged_case(database, escalated=True)
     with pytest.raises(HTTPException) as error:
-        main.approve(
+        case_actions.approve(
             case["case_id"],
             ActionRequest(customer_id=case["customer_id"], note="Bulk approval attempt", require_automation_eligible=True),
             MANAGER,
@@ -177,11 +178,11 @@ def test_bulk_approval_still_never_overrides_a_guardrail(database):
 
 def test_any_open_case_can_be_resolved_once(database):
     case = triaged_case(database)
-    main.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"]), AGENT)
-    resolved = main.resolve_case(case["case_id"], ResolveRequest(customer_id=case["customer_id"], resolution="Handled by phone."), AGENT)
+    case_actions.approve(case["case_id"], ActionRequest(customer_id=case["customer_id"]), AGENT)
+    resolved = case_actions.resolve_case(case["case_id"], ResolveRequest(customer_id=case["customer_id"], resolution="Handled by phone."), AGENT)
     assert resolved["lifecycle"]["state"] == "resolved"
     with pytest.raises(HTTPException) as error:
-        main.resolve_case(case["case_id"], ResolveRequest(customer_id=case["customer_id"], resolution="Again."), AGENT)
+        case_actions.resolve_case(case["case_id"], ResolveRequest(customer_id=case["customer_id"], resolution="Again."), AGENT)
     assert error.value.status_code == 409
 
 
@@ -379,7 +380,7 @@ def test_seeded_snapshots_and_human_corrections_do_not_count_as_model_accuracy(d
         "KOR-2402",
         {"source": "groq", "intent": "Delivery delayed", "modelIntent": "Refund pending", "modelUrgency": "low"},
     )
-    main.record_feedback(
+    case_actions.record_feedback(
         "KOR-2402",
         FeedbackRequest(customer_id=database.support_ticket("KOR-2402")["customerId"], corrected_intent="Delivery missing"),
         AGENT,

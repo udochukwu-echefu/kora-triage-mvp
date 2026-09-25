@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app import main
 from app.api import deps
-from app.api.routers import operations
+from app.api.routers import case_actions, operations
 from app.auth import Principal
 from app.channels import ChannelGateway
 from app.config import Settings
@@ -56,7 +56,7 @@ def test_manual_assessment_can_be_approved_without_using_old_model_draft(
             guardrails={"escalated": True}, actor="groq-model",
         )
     draft = "Account Support will review your access issue."
-    main.manual_assessment(
+    case_actions.manual_assessment(
         case["case_id"],
         ManualAssessmentRequest(
             customer_id=case["customer_id"], intent="Account access",
@@ -66,13 +66,13 @@ def test_manual_assessment_can_be_approved_without_using_old_model_draft(
     )
     # Manual decisions must stay out of bulk automation even after human review.
     with pytest.raises(HTTPException) as error:
-        main.approve(
+        case_actions.approve(
             case["case_id"],
             ActionRequest(customer_id=case["customer_id"], require_automation_eligible=True),
             principal,
         )
     assert error.value.status_code == 409
-    approved = main.approve(
+    approved = case_actions.approve(
         case["case_id"], ActionRequest(customer_id=case["customer_id"]), principal
     )
     assert approved["status"] == "approved"

@@ -5,9 +5,8 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import main
 from app.api import deps
-from app.api.routers import cases
+from app.api.routers import case_actions, cases
 from app.auth import Principal
 from app.database import Database
 from app.demo_seed import seed_demo_data
@@ -318,7 +317,7 @@ async def test_bulk_approval_cannot_bypass_recorded_automation_policy(
     monkeypatch.setattr(deps, "database", database)
 
     with pytest.raises(HTTPException) as error:
-        main.approve(
+        case_actions.approve(
             "KOR-BLOCKED",
             ActionRequest(
                 customer_id="CUS-BLOCKED",
