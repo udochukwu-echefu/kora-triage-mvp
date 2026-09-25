@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app import main
 from app.api import deps
+from app.api.routers import cases
 from app.auth import Principal
 from app.database import Database
 from app.demo_seed import seed_demo_data
@@ -209,7 +210,7 @@ async def test_triage_endpoint_uses_the_persisted_case_payload(
     # A tampered browser payload is no longer accepted at all: only IDs are sent.
     with pytest.raises(ValueError):
         CaseTriageRequest(case_id=ticket["id"], customer_id=ticket["customerId"], message="Tampered")
-    result = await main.triage(
+    result = await cases.triage(
         CaseTriageRequest(case_id=ticket["id"], customer_id=ticket["customerId"]),
         Principal("tenant-demo", "agent", "Agent", "support_agent"),
     )

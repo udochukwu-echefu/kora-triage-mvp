@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from app import main, manage
 from app.api import deps
-from app.api.routers import operations, proof_runs
+from app.api.routers import cases, operations, proof_runs
 from app.auth import Principal, resolve_principal
 from app.channels import ChannelGateway, DeliveryResult
 from app.config import Settings
@@ -339,7 +339,7 @@ def test_seed_reanchors_demo_ages_on_every_start(database):
 
 def test_cases_include_lifecycle_in_one_query(database):
     seed_demo_data(database)
-    items = main.cases(MANAGER)["items"]
+    items = cases.cases(MANAGER)["items"]
     assert any(item.get("lifecycle", {}).get("assigned_to") for item in items)
     assert all("createdAt" in item and "lastMessageAt" in item for item in items)
 
