@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from app import main
+from app.api import deps
 from app.auth import Principal
 from app.channels import ChannelGateway
 from app.config import Settings
@@ -16,8 +17,8 @@ from app.workflow import SupportWorkflow, WorkflowWorker
 def database(tmp_path: Path, monkeypatch):
     db = Database(tmp_path / "regressions.db")
     db.initialize()
-    monkeypatch.setattr(main, "database", db)
-    monkeypatch.setattr(main, "settings", Settings(channel_mode="demo"))
+    monkeypatch.setattr(deps, "database", db)
+    monkeypatch.setattr(deps, "settings", Settings(channel_mode="demo"))
     return db
 
 
@@ -91,7 +92,7 @@ async def test_manager_run_once_only_processes_their_tenants_jobs(database, monk
         processed.append(job["tenant_id"])
 
     monkeypatch.setattr(worker, "_triage", record_job)
-    monkeypatch.setattr(main, "worker", worker)
+    monkeypatch.setattr(deps, "worker", worker)
     principal = Principal("tenant-a", "manager", "Manager", "support_manager")
     assert await main.run_job_once(principal) == {"processed": True}
     assert processed == ["tenant-a"]

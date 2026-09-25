@@ -12,6 +12,7 @@ import pytest
 from fastapi import HTTPException
 
 from app import main, triage_policy
+from app.api import deps
 from app.auth import Principal
 from app.config import Settings
 from app.database import Database
@@ -49,8 +50,8 @@ LIVE = Settings(channel_mode="live", postmark_server_token="token", postmark_fro
 def database(tmp_path: Path, monkeypatch) -> Database:
     db = Database(tmp_path / "safety.db")
     db.initialize()
-    monkeypatch.setattr(main, "database", db)
-    monkeypatch.setattr(main, "settings", Settings(channel_mode="demo"))
+    monkeypatch.setattr(deps, "database", db)
+    monkeypatch.setattr(deps, "settings", Settings(channel_mode="demo"))
     return db
 
 
@@ -128,7 +129,7 @@ def test_a_case_cannot_be_approved_twice(database):
 
 
 def test_concurrent_live_approvals_queue_exactly_one_send(database, monkeypatch):
-    monkeypatch.setattr(main, "settings", LIVE)
+    monkeypatch.setattr(deps, "settings", LIVE)
     case = triaged_case(database)
 
     def attempt(_):

@@ -10,6 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from app import main
+from app.api import deps
 from app.auth import resolve_principal, token_hash
 from app.benchmark import score_predictions
 from app.channels import ChannelGateway
@@ -325,7 +326,7 @@ def test_delivery_receipt_updates_message_lifecycle_and_audit(
         body="We are reviewing your case.",
         delivery_status="sent",
     )
-    monkeypatch.setattr(main, "database", database)
+    monkeypatch.setattr(deps, "database", database)
 
     receipt = main._record_delivery_update(
         event_id="delivery-1",
@@ -456,7 +457,7 @@ def test_operational_policy_matches_gold_routing_and_urgency(case) -> None:
 
 def test_live_generic_webhook_fails_closed_without_a_secret(monkeypatch) -> None:
     monkeypatch.setattr(
-        main,
+        deps,
         "settings",
         Settings(channel_mode="live", webhook_token=None),
     )
@@ -467,7 +468,7 @@ def test_live_generic_webhook_fails_closed_without_a_secret(monkeypatch) -> None
 
 def test_postmark_supports_basic_auth_for_provider_webhooks(monkeypatch) -> None:
     monkeypatch.setattr(
-        main,
+        deps,
         "settings",
         Settings(
             channel_mode="live",
@@ -489,7 +490,7 @@ def test_whatsapp_signature_uses_the_exact_raw_request_body(monkeypatch) -> None
         secret.encode("utf-8"), raw, hashlib.sha256
     ).hexdigest()
     monkeypatch.setattr(
-        main,
+        deps,
         "settings",
         Settings(channel_mode="live", whatsapp_app_secret=secret),
     )

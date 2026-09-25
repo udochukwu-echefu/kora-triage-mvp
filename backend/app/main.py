@@ -9,7 +9,6 @@ import json
 import logging
 import re
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -20,18 +19,24 @@ from fastapi.staticfiles import StaticFiles
 from groq import APIConnectionError, APIStatusError, RateLimitError
 from pydantic import ValidationError
 
-from .auth import ROLE_LEVEL, Principal, require_role, resolve_principal
+from .api import deps
+from .api.deps import (
+    ai_rate_limit,
+    consume_ai_budget,
+    current_principal,
+    manager_principal,
+    require_ai_budget,
+    validated_case,
+    write_rate_limit,
+)
+from .auth import ROLE_LEVEL, Principal, require_role
 from .automation import recorded_automation_decision
-from .channels import ChannelGateway
-from .config import DEFAULT_AUTOMATION, settings
-from .database import Database
+from .config import DEFAULT_AUTOMATION
 from .demo_seed import seed_demo_data
 from .evaluation import evaluation_summary, regression_gate
 from .evaluation_dataset import dataset_summary
-from .groq_triage import GroqTriageModel
 from .guardrails import review_response
 from .launch_features import PaystackVerifier, proof_report
-from .limits import SlidingWindowLimiter, client_key
 from .schemas import (
     ActionRequest,
     AutomationSettings,
@@ -53,20 +58,11 @@ from .schemas import (
     TriageRequest,
     TriageResult,
 )
-from .service import TriageService
-from .workflow import SupportWorkflow, WorkflowWorker, send_job_payload
+from .workflow import WorkflowWorker, send_job_payload
 
 logger = logging.getLogger("kora.api")
 
-database = Database(settings.database_path)
 frontend_dist = Path(__file__).resolve().parents[2] / "dist"
-gateway = ChannelGateway(settings)
-workflow = SupportWorkflow(database)
-limiter = SlidingWindowLimiter()
-worker: WorkflowWorker | None = None
-worker_task: asyncio.Task | None = None
-proof_tasks: set[asyncio.Task] = set()
-_service_cache: dict[tuple, TriageService] = {}
 
 # A case in one of these states has already been answered or closed; a new
 # customer message moves it back to "replied"/"reopened" for fresh review.
@@ -78,24 +74,24 @@ MAX_SUBJECT_LENGTH = 500
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global worker, worker_task
-    database.initialize()
-    if settings.seed_demo_data:
-        seed_demo_data(database, settings.default_tenant_id)
+    deps.database.initialize()
+    if deps.settings.seed_demo_data:
+        seed_demo_data(deps.database, deps.settings.default_tenant_id)
     worker = WorkflowWorker(
-        database,
-        get_service,
-        gateway,
-        poll_seconds=settings.worker_poll_seconds,
-        lease_seconds=settings.job_lease_seconds,
+        deps.database,
+        deps.get_service,
+        deps.gateway,
+        poll_seconds=deps.settings.worker_poll_seconds,
+        lease_seconds=deps.settings.job_lease_seconds,
     )
-    if settings.worker_enabled:
-        worker_task = asyncio.create_task(worker.run())
+    deps.worker = worker
+    if deps.settings.worker_enabled:
+        deps.worker_task = asyncio.create_task(worker.run())
     try:
         yield
     finally:
         worker.stop()
-        for task in [worker_task, *proof_tasks]:
+        for task in [deps.worker_task, *deps.proof_tasks]:
             if task:
                 task.cancel()
                 try:
@@ -112,7 +108,7 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(settings.allowed_origins),
+    allow_origins=list(deps.settings.allowed_origins),
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type", "Authorization", "X-Kora-Webhook-Token", "X-Hub-Signature-256"],
@@ -133,96 +129,22 @@ async def validation_error_handler(_: Request, error: ValidationError) -> JSONRe
     )
 
 
-def get_service() -> TriageService:
-    if not settings.groq_api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="GROQ_API_KEY is not configured. Add it to backend/.env or the environment.",
-        )
-    key = (
-        settings.groq_api_key,
-        settings.groq_model,
-        settings.manual_baseline_minutes,
-        settings.delivery_ready,
-        bool(settings.paystack_secret_key),
-        id(database),
-    )
-    # One service (and one pooled Groq client) per configuration.
-    if key not in _service_cache:
-        _service_cache.clear()
-        _service_cache[key] = TriageService(
-            database,
-            GroqTriageModel(settings.groq_api_key, settings.groq_model),
-            settings.manual_baseline_minutes,
-            delivery_available=settings.delivery_ready,
-            verification_available=bool(settings.paystack_secret_key),
-        )
-    return _service_cache[key]
-
-
-def current_principal(authorization: str | None = Header(default=None)) -> Principal:
-    return resolve_principal(authorization, database, settings)
-
-
-def manager_principal(principal: Principal = Depends(current_principal)) -> Principal:
-    require_role(principal, "support_manager")
-    return principal
-
-
-def ai_rate_limit(request: Request) -> None:
-    limiter.check(f"ai:{client_key(request, settings)}", settings.ai_requests_per_minute)
-
-
-def write_rate_limit(request: Request) -> None:
-    limiter.check(f"write:{client_key(request, settings)}", settings.write_requests_per_minute)
-
-
-def consume_ai_budget(units: int = 1) -> bool:
-    """Daily model-call budget for the public demo, where everyone is a manager."""
-    if settings.auth_mode != "demo":
-        return True
-    day = datetime.now(UTC).date().isoformat()
-    return all(
-        database.consume_quota(f"demo-ai:{day}", settings.demo_daily_ai_limit)
-        for _ in range(units)
-    )
-
-
-def require_ai_budget() -> None:
-    if not consume_ai_budget():
-        raise HTTPException(
-            status_code=429,
-            detail="The public demo has reached today's AI limit. Try again tomorrow.",
-        )
-
-
-def validated_case(
-    case_id: str, customer_id: str, tenant_id: str = "tenant-demo"
-) -> dict:
-    latest = database.latest_triage_for_case(case_id, tenant_id)
-    if not latest:
-        raise HTTPException(status_code=409, detail="Case must be triaged before this action.")
-    if latest["customer_id"] != customer_id:
-        raise HTTPException(status_code=409, detail="Customer does not match the triaged case.")
-    return latest
-
-
 def verify_webhook_token(received: str | None) -> None:
-    if not settings.webhook_token:
-        if settings.channel_mode == "live" or not settings.allow_unsigned_webhooks:
+    if not deps.settings.webhook_token:
+        if deps.settings.channel_mode == "live" or not deps.settings.allow_unsigned_webhooks:
             raise HTTPException(
                 status_code=503,
                 detail="KORA_WEBHOOK_TOKEN must be configured before webhooks are accepted.",
             )
         return
-    if not hmac.compare_digest(received or "", settings.webhook_token):
+    if not hmac.compare_digest(received or "", deps.settings.webhook_token):
         raise HTTPException(status_code=401, detail="Invalid webhook token.")
 
 
 def verify_postmark_webhook(
     authorization: str | None, fallback_token: str | None
 ) -> None:
-    if settings.postmark_webhook_username and settings.postmark_webhook_password:
+    if deps.settings.postmark_webhook_username and deps.settings.postmark_webhook_password:
         try:
             scheme, encoded = (authorization or "").split(" ", 1)
             decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
@@ -232,8 +154,8 @@ def verify_postmark_webhook(
                 status_code=401, detail="Invalid Postmark webhook credentials."
             ) from None
         valid = scheme.lower() == "basic" and hmac.compare_digest(
-            username, settings.postmark_webhook_username
-        ) and hmac.compare_digest(password, settings.postmark_webhook_password)
+            username, deps.settings.postmark_webhook_username
+        ) and hmac.compare_digest(password, deps.settings.postmark_webhook_password)
         if not valid:
             raise HTTPException(
                 status_code=401, detail="Invalid Postmark webhook credentials."
@@ -243,15 +165,15 @@ def verify_postmark_webhook(
 
 
 def verify_whatsapp_signature(raw: bytes, received: str | None) -> None:
-    if not settings.whatsapp_app_secret:
-        if settings.channel_mode == "live" or not settings.allow_unsigned_webhooks:
+    if not deps.settings.whatsapp_app_secret:
+        if deps.settings.channel_mode == "live" or not deps.settings.allow_unsigned_webhooks:
             raise HTTPException(
                 status_code=503,
                 detail="WHATSAPP_APP_SECRET must be configured before WhatsApp webhooks are accepted.",
             )
         return
     expected = "sha256=" + hmac.new(
-        settings.whatsapp_app_secret.encode("utf-8"), raw, hashlib.sha256
+        deps.settings.whatsapp_app_secret.encode("utf-8"), raw, hashlib.sha256
     ).hexdigest()
     if not hmac.compare_digest(received or "", expected):
         raise HTTPException(status_code=401, detail="Invalid WhatsApp signature.")
@@ -281,13 +203,13 @@ def strip_quoted_reply(text: str) -> str:
 def health() -> dict:
     """Public liveness check. Operational detail lives behind authentication."""
     return {
-        "status": "ready" if settings.groq_api_key else "degraded",
-        "operational_mode": "ai_assisted" if settings.groq_api_key else "manual",
-        "configured": bool(settings.groq_api_key),
-        "auth_mode": settings.auth_mode,
+        "status": "ready" if deps.settings.groq_api_key else "degraded",
+        "operational_mode": "ai_assisted" if deps.settings.groq_api_key else "manual",
+        "configured": bool(deps.settings.groq_api_key),
+        "auth_mode": deps.settings.auth_mode,
         "alert": (
             "AI unavailable. Inbound cases remain available for manual handling."
-            if not settings.groq_api_key
+            if not deps.settings.groq_api_key
             else None
         ),
     }
@@ -300,25 +222,25 @@ def auth_me(principal: Principal = Depends(current_principal)) -> dict:
         "user_id": principal.user_id,
         "display_name": principal.display_name,
         "role": principal.role,
-        "auth_mode": settings.auth_mode,
+        "auth_mode": deps.settings.auth_mode,
     }
 
 
 @app.get("/api/integrations")
 def integrations(principal: Principal = Depends(current_principal)) -> dict:
     return {
-        **gateway.status(),
-        "model": settings.groq_model,
-        "worker_enabled": settings.worker_enabled,
-        "jobs": database.job_counts(principal.tenant_id),
-        "webhook_protected": bool(settings.webhook_token),
+        **deps.gateway.status(),
+        "model": deps.settings.groq_model,
+        "worker_enabled": deps.settings.worker_enabled,
+        "jobs": deps.database.job_counts(principal.tenant_id),
+        "webhook_protected": bool(deps.settings.webhook_token),
         "limits": {
-            "proof_cases": settings.demo_proof_case_limit if settings.auth_mode == "demo" else 100,
-            "proof_concurrency": settings.proof_concurrency,
+            "proof_cases": deps.settings.demo_proof_case_limit if deps.settings.auth_mode == "demo" else 100,
+            "proof_concurrency": deps.settings.proof_concurrency,
         },
         "paystack": {
             "provider": "Paystack",
-            "configured": bool(settings.paystack_secret_key),
+            "configured": bool(deps.settings.paystack_secret_key),
             "mode": "read_only",
         },
     }
@@ -330,7 +252,7 @@ async def triage(
     principal: Principal = Depends(current_principal),
     _: None = Depends(ai_rate_limit),
 ) -> TriageResult:
-    ticket = database.support_ticket(request.case_id, principal.tenant_id)
+    ticket = deps.database.support_ticket(request.case_id, principal.tenant_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Case not found.")
     if ticket["customerId"] != request.customer_id:
@@ -338,7 +260,7 @@ async def triage(
             status_code=409,
             detail="Customer does not match the requested case.",
         )
-    service = get_service()
+    service = deps.get_service()
     require_ai_budget()
     # Content always comes from the stored case, never from the browser.
     canonical_request = TriageRequest(
@@ -370,7 +292,7 @@ def audit(
     limit: int = Query(default=100, ge=1, le=500),
     principal: Principal = Depends(current_principal),
 ) -> dict:
-    items = database.audits(limit, principal.tenant_id)
+    items = deps.database.audits(limit, principal.tenant_id)
     value_labels = {
         "assigned_to_specialist": "Assigned to specialist",
         "routed": "Routed by agent",
@@ -388,12 +310,12 @@ def audit(
 
 @app.get("/api/cases")
 def cases(principal: Principal = Depends(current_principal)) -> dict:
-    return {"items": database.support_tickets(principal.tenant_id)}
+    return {"items": deps.database.support_tickets(principal.tenant_id)}
 
 
 @app.get("/api/policies")
 def policies(principal: Principal = Depends(current_principal)) -> dict:
-    return {"items": database.policies(principal.tenant_id)}
+    return {"items": deps.database.policies(principal.tenant_id)}
 
 
 @app.post("/api/policies", status_code=201)
@@ -402,11 +324,11 @@ def create_policy(
     principal: Principal = Depends(manager_principal),
     _: None = Depends(write_rate_limit),
 ) -> dict:
-    policy = database.add_policy(
+    policy = deps.database.add_policy(
         tenant_id=principal.tenant_id,
         **value.model_dump(),
     )
-    database.add_audit(
+    deps.database.add_audit(
         case_id="POLICY",
         customer_id="workspace",
         event_type="policy_created",
@@ -431,12 +353,12 @@ def update_policy_state(
     principal: Principal = Depends(manager_principal),
     _: None = Depends(write_rate_limit),
 ) -> dict:
-    policy = database.set_policy_active(
+    policy = deps.database.set_policy_active(
         policy_id, value.active, principal.tenant_id
     )
     if not policy:
         raise HTTPException(status_code=404, detail="Policy not found.")
-    database.add_audit(
+    deps.database.add_audit(
         case_id="POLICY",
         customer_id="workspace",
         event_type="policy_activated" if value.active else "policy_paused",
@@ -452,12 +374,12 @@ def update_policy_state(
 
 @app.get("/api/proof-runs")
 def proof_runs(principal: Principal = Depends(manager_principal)) -> dict:
-    return {"items": database.proof_runs(principal.tenant_id)}
+    return {"items": deps.database.proof_runs(principal.tenant_id)}
 
 
 @app.get("/api/proof-runs/{run_id}")
 def proof_run_detail(run_id: int, principal: Principal = Depends(manager_principal)) -> dict:
-    run = database.proof_run(run_id, principal.tenant_id)
+    run = deps.database.proof_run(run_id, principal.tenant_id)
     if not run:
         raise HTTPException(status_code=404, detail="Evaluation run not found.")
     return run
@@ -481,14 +403,14 @@ async def execute_proof_run(
     (or one case) can never leak into another.
     """
     proof_tenant = f"{principal.tenant_id}:proof:{run_id}"
-    automation = database.get_setting("automation", DEFAULT_AUTOMATION, principal.tenant_id)
+    automation = deps.database.get_setting("automation", DEFAULT_AUTOMATION, principal.tenant_id)
     rows: list[dict | None] = [None] * len(cases)
-    semaphore = asyncio.Semaphore(max(1, settings.proof_concurrency))
+    semaphore = asyncio.Semaphore(max(1, deps.settings.proof_concurrency))
     try:
-        service = get_service()
+        service = deps.get_service()
     except HTTPException as error:
         report = {**_proof_progress(len(cases), []), "error": error.detail}
-        return database.update_proof_run(run_id, principal.tenant_id, status="failed", report=report)
+        return deps.database.update_proof_run(run_id, principal.tenant_id, status="failed", report=report)
 
     async def run_case(index: int, case: ProofCase) -> None:
         async with semaphore:
@@ -542,7 +464,7 @@ async def execute_proof_run(
                     "error": str(error)[:300],
                 }
             finished = [row for row in rows if row is not None]
-            database.update_proof_run(
+            deps.database.update_proof_run(
                 run_id,
                 principal.tenant_id,
                 status="running",
@@ -555,17 +477,17 @@ async def execute_proof_run(
         "auto_approve_threshold": automation["auto_approve_threshold"],
         "mandatory_review_threshold": automation["mandatory_review_threshold"],
     }
-    run = database.update_proof_run(
+    run = deps.database.update_proof_run(
         run_id,
         principal.tenant_id,
         status="complete" if not report["failed"] else "complete_with_errors",
         report=report,
     )
-    database.add_audit(
+    deps.database.add_audit(
         case_id=f"PROOF-{run_id}",
         customer_id="workspace",
         event_type="proof_run_completed",
-        model=settings.groq_model,
+        model=deps.settings.groq_model,
         request={"cases": len(cases)},
         decision={
             "readiness_score": report["readiness_score"],
@@ -584,15 +506,15 @@ async def run_proof(
     principal: Principal = Depends(manager_principal),
     _: None = Depends(ai_rate_limit),
 ) -> dict:
-    get_service()
-    if settings.auth_mode == "demo" and len(value.cases) > settings.demo_proof_case_limit:
+    deps.get_service()
+    if deps.settings.auth_mode == "demo" and len(value.cases) > deps.settings.demo_proof_case_limit:
         raise HTTPException(
             status_code=422,
-            detail=f"The public demo accepts up to {settings.demo_proof_case_limit} cases per evaluation.",
+            detail=f"The public demo accepts up to {deps.settings.demo_proof_case_limit} cases per evaluation.",
         )
-    if any(run["status"] == "running" for run in database.proof_runs(principal.tenant_id, limit=5)):
+    if any(run["status"] == "running" for run in deps.database.proof_runs(principal.tenant_id, limit=5)):
         raise HTTPException(status_code=409, detail="An evaluation is already running.")
-    run = database.add_proof_run(
+    run = deps.database.add_proof_run(
         tenant_id=principal.tenant_id,
         name=value.name,
         status="running",
@@ -600,8 +522,8 @@ async def run_proof(
     )
     # Long runs continue in the background; the client polls for progress.
     task = asyncio.create_task(execute_proof_run(run["id"], value.cases, principal))
-    proof_tasks.add(task)
-    task.add_done_callback(proof_tasks.discard)
+    deps.proof_tasks.add(task)
+    task.add_done_callback(deps.proof_tasks.discard)
     return run
 
 
@@ -609,10 +531,10 @@ async def run_proof(
 def automation_settings(
     principal: Principal = Depends(current_principal),
 ) -> AutomationSettings:
-    value = database.get_setting("automation", DEFAULT_AUTOMATION, principal.tenant_id)
+    value = deps.database.get_setting("automation", DEFAULT_AUTOMATION, principal.tenant_id)
     # Report what is actually in force without rewriting stored settings.
     if value.get("enabled") and (
-        not database.policies(principal.tenant_id, active_only=True) or not settings.delivery_ready
+        not deps.database.policies(principal.tenant_id, active_only=True) or not deps.settings.delivery_ready
     ):
         value = {**value, "enabled": False}
     return AutomationSettings.model_validate(value)
@@ -629,18 +551,18 @@ def update_automation_settings(
             status_code=422,
             detail="Mandatory review threshold must be lower than auto-approve threshold.",
         )
-    if value.enabled and not database.policies(principal.tenant_id, active_only=True):
+    if value.enabled and not deps.database.policies(principal.tenant_id, active_only=True):
         raise HTTPException(
             status_code=422,
             detail="Add and activate an approved policy before enabling auto-approval.",
         )
-    if value.enabled and not settings.delivery_ready:
+    if value.enabled and not deps.settings.delivery_ready:
         raise HTTPException(
             status_code=422,
             detail="Connect a live customer delivery channel before enabling auto-approval.",
         )
-    database.set_setting("automation", value.model_dump(), principal.tenant_id)
-    database.add_audit(
+    deps.database.set_setting("automation", value.model_dump(), principal.tenant_id)
+    deps.database.add_audit(
         case_id="SETTINGS",
         customer_id="workspace",
         event_type="automation_settings_changed",
@@ -660,7 +582,7 @@ def customer_memory(
 ) -> dict:
     return {
         "customer_id": customer_id,
-        "items": database.memories_for(customer_id, tenant_id=principal.tenant_id),
+        "items": deps.database.memories_for(customer_id, tenant_id=principal.tenant_id),
     }
 
 
@@ -680,9 +602,9 @@ def approve(
 ) -> dict:
     # One transaction: the state check and the approval cannot interleave with
     # a concurrent approval (double click, two agents).
-    with database.transaction():
+    with deps.database.transaction():
         latest = validated_case(case_id, action.customer_id, principal.tenant_id)
-        lifecycle = database.lifecycle(case_id, principal.tenant_id) or {}
+        lifecycle = deps.database.lifecycle(case_id, principal.tenant_id) or {}
         if lifecycle.get("state") in ALREADY_HANDLED_STATES:
             raise HTTPException(
                 status_code=409,
@@ -726,7 +648,7 @@ def approve(
                 status_code=422,
                 detail="This reply " + " and ".join(problems[flag] for flag in flags) + ". Edit it before approving.",
             )
-        audit_id = database.add_audit(
+        audit_id = deps.database.add_audit(
             case_id=case_id,
             customer_id=action.customer_id,
             event_type="human_approved",
@@ -742,7 +664,7 @@ def approve(
             actor=principal.display_name,
             tenant_id=principal.tenant_id,
         )
-        database.add_feedback(
+        deps.database.add_feedback(
             case_id=case_id,
             customer_id=action.customer_id,
             actor=principal.display_name,
@@ -753,15 +675,15 @@ def approve(
             reason=action.note,
             tenant_id=principal.tenant_id,
         )
-        has_inbound = database.latest_inbound_message(case_id, principal.tenant_id) is not None
+        has_inbound = deps.database.latest_inbound_message(case_id, principal.tenant_id) is not None
         job_id = None
-        if has_inbound and settings.delivery_ready:
-            job_id = database.enqueue_job(
+        if has_inbound and deps.settings.delivery_ready:
+            job_id = deps.database.enqueue_job(
                 tenant_id=principal.tenant_id,
                 job_type="send_response",
                 idempotency_key=f"approved-send:{audit_id}",
                 payload=send_job_payload(
-                    database,
+                    deps.database,
                     case_id=case_id,
                     tenant_id=principal.tenant_id,
                     response=reviewed_response,
@@ -769,12 +691,12 @@ def approve(
                     expected_states=["queued"],
                 ),
             )
-            database.set_lifecycle(case_id, "queued", tenant_id=principal.tenant_id)
+            deps.database.set_lifecycle(case_id, "queued", tenant_id=principal.tenant_id)
             ticket_status = "Queued to send"
         else:
-            database.set_lifecycle(case_id, "approved", tenant_id=principal.tenant_id)
+            deps.database.set_lifecycle(case_id, "approved", tenant_id=principal.tenant_id)
             ticket_status = "Approved"
-        database.update_support_ticket_fields(
+        deps.database.update_support_ticket_fields(
             case_id, {"status": ticket_status, "escalated": False}, principal.tenant_id
         )
     return {
@@ -792,7 +714,7 @@ def record_sensitive_reveal(
     principal: Principal = Depends(current_principal),
 ) -> dict:
     validated_case(case_id, action.customer_id, principal.tenant_id)
-    audit_id = database.add_audit(
+    audit_id = deps.database.add_audit(
         case_id=case_id,
         customer_id=action.customer_id,
         event_type="sensitive_data_revealed",
@@ -814,7 +736,7 @@ def escalate(
     _: None = Depends(write_rate_limit),
 ) -> dict:
     latest = validated_case(case_id, action.customer_id, principal.tenant_id)
-    audit_id = database.add_audit(
+    audit_id = deps.database.add_audit(
         case_id=case_id,
         customer_id=action.customer_id,
         event_type="human_escalated",
@@ -829,7 +751,7 @@ def escalate(
         actor=principal.display_name,
         tenant_id=principal.tenant_id,
     )
-    database.add_feedback(
+    deps.database.add_feedback(
         case_id=case_id,
         customer_id=action.customer_id,
         actor=principal.display_name,
@@ -840,13 +762,13 @@ def escalate(
         reason=action.note or latest["guardrails"].get("reason"),
         tenant_id=principal.tenant_id,
     )
-    lifecycle = database.set_lifecycle(
+    lifecycle = deps.database.set_lifecycle(
         case_id,
         "review_required",
         tenant_id=principal.tenant_id,
         assigned_to=principal.display_name,
     )
-    database.update_support_ticket_fields(
+    deps.database.update_support_ticket_fields(
         case_id, {"status": "Assigned", "escalated": True}, principal.tenant_id
     )
     return {
@@ -865,7 +787,7 @@ def route_case(
     _: None = Depends(write_rate_limit),
 ) -> dict:
     validated_case(case_id, action.customer_id, principal.tenant_id)
-    audit_id = database.add_audit(
+    audit_id = deps.database.add_audit(
         case_id=case_id,
         customer_id=action.customer_id,
         event_type="human_routed",
@@ -876,7 +798,7 @@ def route_case(
         actor=principal.display_name,
         tenant_id=principal.tenant_id,
     )
-    database.update_support_ticket_fields(
+    deps.database.update_support_ticket_fields(
         case_id,
         {"status": f"Routed to {action.team}", "route": action.team},
         principal.tenant_id,
@@ -891,7 +813,7 @@ def assign_case(
     principal: Principal = Depends(current_principal),
     _: None = Depends(write_rate_limit),
 ) -> dict:
-    ticket = database.support_ticket(case_id, principal.tenant_id)
+    ticket = deps.database.support_ticket(case_id, principal.tenant_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Case not found.")
     assignee = action.assignee
@@ -899,7 +821,7 @@ def assign_case(
     if claiming_self:
         assignee = principal.display_name
     try:
-        lifecycle = database.claim_case(
+        lifecycle = deps.database.claim_case(
             case_id,
             tenant_id=principal.tenant_id,
             assignee=assignee,
@@ -916,7 +838,7 @@ def assign_case(
             status_code=409,
             detail=f"Case ownership changed. It is currently assigned to {error}.",
         ) from error
-    database.update_support_ticket_fields(
+    deps.database.update_support_ticket_fields(
         case_id,
         {
             "assignee": assignee,
@@ -924,7 +846,7 @@ def assign_case(
         },
         principal.tenant_id,
     )
-    database.add_audit(
+    deps.database.add_audit(
         case_id=case_id,
         customer_id=ticket["customerId"],
         event_type="case_assignment_changed",
@@ -942,9 +864,9 @@ def assign_case(
 def case_notes(
     case_id: str, principal: Principal = Depends(current_principal)
 ) -> dict:
-    if not database.support_ticket(case_id, principal.tenant_id):
+    if not deps.database.support_ticket(case_id, principal.tenant_id):
         raise HTTPException(status_code=404, detail="Case not found.")
-    return {"items": database.case_notes(case_id, principal.tenant_id)}
+    return {"items": deps.database.case_notes(case_id, principal.tenant_id)}
 
 
 @app.post("/api/cases/{case_id}/notes", status_code=201)
@@ -954,17 +876,17 @@ def add_case_note(
     principal: Principal = Depends(current_principal),
     _: None = Depends(write_rate_limit),
 ) -> dict:
-    ticket = database.support_ticket(case_id, principal.tenant_id)
+    ticket = deps.database.support_ticket(case_id, principal.tenant_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Case not found.")
-    note = database.add_case_note(
+    note = deps.database.add_case_note(
         case_id=case_id,
         tenant_id=principal.tenant_id,
         actor=principal.display_name,
         body=value.body,
         mentions=value.mentions,
     )
-    database.add_audit(
+    deps.database.add_audit(
         case_id=case_id,
         customer_id=ticket["customerId"],
         event_type="internal_note_added",
@@ -992,20 +914,20 @@ async def verify_transaction(
             status_code=409,
             detail="Verification is restricted to the transaction reference extracted from this case.",
         )
-    if not settings.paystack_secret_key:
+    if not deps.settings.paystack_secret_key:
         raise HTTPException(
             status_code=503,
             detail="Paystack read-only verification is not configured.",
         )
     try:
         result = await PaystackVerifier(
-            settings.paystack_secret_key, settings.paystack_base_url
+            deps.settings.paystack_secret_key, deps.settings.paystack_base_url
         ).verify(value.reference)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except (httpx.HTTPError, RuntimeError) as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
-    audit_id = database.add_audit(
+    audit_id = deps.database.add_audit(
         case_id=case_id,
         customer_id=value.customer_id,
         event_type="transaction_verified",
@@ -1016,7 +938,7 @@ async def verify_transaction(
         actor=principal.display_name,
         tenant_id=principal.tenant_id,
     )
-    database.update_support_ticket_fields(
+    deps.database.update_support_ticket_fields(
         case_id,
         {"verifiedTransaction": result},
         principal.tenant_id,
@@ -1031,7 +953,7 @@ def manual_assessment(
     principal: Principal = Depends(current_principal),
     _: None = Depends(write_rate_limit),
 ) -> dict:
-    ticket = database.support_ticket(case_id, principal.tenant_id)
+    ticket = deps.database.support_ticket(case_id, principal.tenant_id)
     if not ticket or ticket["customerId"] != value.customer_id:
         raise HTTPException(status_code=404, detail="Case not found.")
     flags = review_response(value.response)
@@ -1052,7 +974,7 @@ def manual_assessment(
         "response": value.response,
         "policy_citations": [],
     }
-    audit_id = database.add_audit(
+    audit_id = deps.database.add_audit(
         case_id=case_id,
         customer_id=value.customer_id,
         event_type="manual_triage",
@@ -1063,7 +985,7 @@ def manual_assessment(
         actor=principal.display_name,
         tenant_id=principal.tenant_id,
     )
-    database.update_support_ticket_triage(
+    deps.database.update_support_ticket_triage(
         case_id,
         {
             **decision,
@@ -1079,14 +1001,14 @@ def manual_assessment(
         },
         principal.tenant_id,
     )
-    lifecycle = database.set_lifecycle(
+    lifecycle = deps.database.set_lifecycle(
         case_id, "review_required", tenant_id=principal.tenant_id
     )
     return {
         "case_id": case_id,
         "audit_id": audit_id,
         "lifecycle": lifecycle,
-        "ticket": database.support_ticket(case_id, principal.tenant_id),
+        "ticket": deps.database.support_ticket(case_id, principal.tenant_id),
     }
 
 
@@ -1094,13 +1016,13 @@ def manual_assessment(
 def case_conversation(
     case_id: str, principal: Principal = Depends(current_principal)
 ) -> dict:
-    if not database.support_ticket(case_id, principal.tenant_id):
+    if not deps.database.support_ticket(case_id, principal.tenant_id):
         raise HTTPException(status_code=404, detail="Case not found.")
     return {
         "case_id": case_id,
-        "lifecycle": database.lifecycle(case_id, principal.tenant_id),
-        "messages": database.conversation(case_id, principal.tenant_id),
-        "notes": database.case_notes(case_id, principal.tenant_id),
+        "lifecycle": deps.database.lifecycle(case_id, principal.tenant_id),
+        "messages": deps.database.conversation(case_id, principal.tenant_id),
+        "notes": deps.database.case_notes(case_id, principal.tenant_id),
     }
 
 
@@ -1123,7 +1045,7 @@ def record_feedback(
     }
     if not corrected and feedback.response_accepted is None and not feedback.reason:
         raise HTTPException(status_code=422, detail="Record at least one correction or review outcome.")
-    feedback_id = database.add_feedback(
+    feedback_id = deps.database.add_feedback(
         case_id=case_id,
         customer_id=feedback.customer_id,
         actor=principal.display_name,
@@ -1137,8 +1059,8 @@ def record_feedback(
     if corrected:
         # The displayed values change; the model's own prediction is kept in
         # modelIntent/modelUrgency/modelRoute for accuracy measurement.
-        database.update_support_ticket_fields(case_id, corrected, principal.tenant_id)
-    audit_id = database.add_audit(
+        deps.database.update_support_ticket_fields(case_id, corrected, principal.tenant_id)
+    audit_id = deps.database.add_audit(
         case_id=case_id,
         customer_id=feedback.customer_id,
         event_type="human_feedback",
@@ -1160,14 +1082,14 @@ def resolve_case(
     _: None = Depends(write_rate_limit),
 ) -> dict:
     validated_case(case_id, action.customer_id, principal.tenant_id)
-    current = database.lifecycle(case_id, principal.tenant_id) or {}
+    current = deps.database.lifecycle(case_id, principal.tenant_id) or {}
     if current.get("state") == "resolved":
         raise HTTPException(status_code=409, detail="This case is already resolved.")
-    lifecycle = database.set_lifecycle(case_id, "resolved", tenant_id=principal.tenant_id)
-    database.update_support_ticket_fields(
+    lifecycle = deps.database.set_lifecycle(case_id, "resolved", tenant_id=principal.tenant_id)
+    deps.database.update_support_ticket_fields(
         case_id, {"status": "Resolved"}, principal.tenant_id
     )
-    audit_id = database.add_audit(
+    audit_id = deps.database.add_audit(
         case_id=case_id,
         customer_id=action.customer_id,
         event_type="case_resolved",
@@ -1183,7 +1105,7 @@ def resolve_case(
 
 @app.get("/api/team")
 def team(principal: Principal = Depends(current_principal)) -> dict:
-    return {"items": database.team_members(principal.tenant_id)}
+    return {"items": deps.database.team_members(principal.tenant_id)}
 
 
 @app.put("/api/team/{member_id}/availability")
@@ -1193,18 +1115,18 @@ def set_team_availability(
     principal: Principal = Depends(current_principal),
     _: None = Depends(write_rate_limit),
 ) -> dict:
-    members = {member["id"]: member for member in database.team_members(principal.tenant_id)}
+    members = {member["id"]: member for member in deps.database.team_members(principal.tenant_id)}
     member = members.get(member_id)
     if not member:
         raise HTTPException(status_code=404, detail="Team member not found.")
     if member["name"] != principal.display_name:
         require_role(principal, "support_manager")
-    return database.set_team_availability(member_id, value.availability, principal.tenant_id)
+    return deps.database.set_team_availability(member_id, value.availability, principal.tenant_id)
 
 
 @app.get("/api/evaluations/summary")
 def evaluations(principal: Principal = Depends(current_principal)) -> dict:
-    return evaluation_summary(database, principal.tenant_id)
+    return evaluation_summary(deps.database, principal.tenant_id)
 
 
 @app.get("/api/evaluations/dataset")
@@ -1218,7 +1140,7 @@ def evaluation_dataset(
 def evaluation_gate(
     principal: Principal = Depends(manager_principal),
 ) -> dict:
-    return regression_gate(database, principal.tenant_id)
+    return regression_gate(deps.database, principal.tenant_id)
 
 
 @app.get("/api/jobs")
@@ -1227,16 +1149,16 @@ def jobs(
     principal: Principal = Depends(manager_principal),
 ) -> dict:
     return {
-        "counts": database.job_counts(principal.tenant_id),
-        "items": database.jobs(principal.tenant_id, limit),
+        "counts": deps.database.job_counts(principal.tenant_id),
+        "items": deps.database.jobs(principal.tenant_id, limit),
     }
 
 
 @app.post("/api/jobs/run-once")
 async def run_job_once(principal: Principal = Depends(manager_principal)) -> dict:
-    if not worker:
+    if not deps.worker:
         raise HTTPException(status_code=503, detail="Workflow worker is not initialized.")
-    return {"processed": await worker.process_one(tenant_id=principal.tenant_id)}
+    return {"processed": await deps.worker.process_one(tenant_id=principal.tenant_id)}
 
 
 @app.post("/api/webhooks/inbound", status_code=202)
@@ -1245,8 +1167,8 @@ def generic_inbound(
     x_kora_webhook_token: str | None = Header(default=None, alias="X-Kora-Webhook-Token"),
 ) -> dict:
     verify_webhook_token(x_kora_webhook_token)
-    return workflow.ingest(
-        message, provider="kora_webhook", tenant_id=settings.default_tenant_id
+    return deps.workflow.ingest(
+        message, provider="kora_webhook", tenant_id=deps.settings.default_tenant_id
     )
 
 
@@ -1262,10 +1184,10 @@ def _email_tenant(payload: dict) -> str:
     candidates += [item.get("Email") for item in payload.get("ToFull") or [] if isinstance(item, dict)]
     for candidate in candidates:
         for address in re.findall(r"[\w.+-]+@[\w.-]+", str(candidate or "")):
-            tenant = settings.email_tenants.get(address.lower())
+            tenant = deps.settings.email_tenants.get(address.lower())
             if tenant:
                 return tenant
-    return settings.default_tenant_id
+    return deps.settings.default_tenant_id
 
 
 @app.post("/api/webhooks/postmark/inbound", status_code=202)
@@ -1293,7 +1215,7 @@ def postmark_inbound(
         references.append(in_reply_to)
     root = references[0].strip("<>") if references else None
     name = _clip(payload.get("FromName") or sender.split("@", 1)[0], MAX_NAME_LENGTH) or "Customer"
-    return workflow.ingest(
+    return deps.workflow.ingest(
         InboundMessageRequest(
             event_id=f"postmark-inbound:{message_id}"[:200],
             provider_message_id=message_id[:200],
@@ -1353,7 +1275,7 @@ def _record_delivery_update(
     payload: dict,
 ) -> dict:
     # The deduplication marker must commit with the message, case, and audit.
-    with database.transaction():
+    with deps.database.transaction():
         return _apply_delivery_update(
             event_id=event_id,
             provider=provider,
@@ -1371,16 +1293,16 @@ def _apply_delivery_update(
     status_value: str,
     payload: dict,
 ) -> dict:
-    if not database.record_webhook(
+    if not deps.database.record_webhook(
         event_id=event_id,
-        tenant_id=settings.default_tenant_id,
+        tenant_id=deps.settings.default_tenant_id,
         provider=provider,
         event_type=f"message_{status_value}",
         payload=payload,
     ):
         return {"duplicate": True}
     # Receipts are routed by provider message ID, which carries the tenant.
-    updated = database.update_message_delivery(
+    updated = deps.database.update_message_delivery(
         provider_message_id, status_value, None, provider=provider
     )
     case_id, tenant_id = updated if updated else (None, None)
@@ -1390,8 +1312,8 @@ def _apply_delivery_update(
             if status_value in {"delivered", "read"}
             else "failed" if status_value == "failed" else "sent"
         )
-        lifecycle = database.lifecycle(case_id, tenant_id) or {}
-        conversation = database.conversation(case_id, tenant_id)
+        lifecycle = deps.database.lifecycle(case_id, tenant_id) or {}
+        conversation = deps.database.conversation(case_id, tenant_id)
         latest_message = conversation[-1] if conversation else {}
         # A receipt updates its message, but cannot undo a human decision or a
         # newer reply/send in the same conversation.
@@ -1402,16 +1324,16 @@ def _apply_delivery_update(
             and latest_message.get("provider_message_id") == provider_message_id
         )
         if updates_case:
-            database.set_lifecycle(case_id, lifecycle_state, tenant_id=tenant_id)
-        ticket = database.support_ticket(case_id, tenant_id)
+            deps.database.set_lifecycle(case_id, lifecycle_state, tenant_id=tenant_id)
+        ticket = deps.database.support_ticket(case_id, tenant_id)
         if ticket:
             if updates_case:
-                database.update_support_ticket_fields(
+                deps.database.update_support_ticket_fields(
                     case_id,
                     {"status": lifecycle_state.capitalize()},
                     tenant_id,
                 )
-            database.add_audit(
+            deps.database.add_audit(
                 case_id=case_id,
                 customer_id=ticket["customerId"],
                 event_type="delivery_updated",
@@ -1433,9 +1355,9 @@ def verify_whatsapp(
 ):
     if (
         mode == "subscribe"
-        and settings.whatsapp_verify_token
+        and deps.settings.whatsapp_verify_token
         and token is not None
-        and hmac.compare_digest(token, settings.whatsapp_verify_token)
+        and hmac.compare_digest(token, deps.settings.whatsapp_verify_token)
     ):
         return PlainTextResponse(challenge or "0")
     raise HTTPException(status_code=403, detail="WhatsApp webhook verification failed.")
@@ -1463,7 +1385,7 @@ async def whatsapp_inbound(
         for change in (entry or {}).get("changes") or []:
             value = (change or {}).get("value") or {}
             phone_number_id = str((value.get("metadata") or {}).get("phone_number_id") or "")
-            tenant_id = settings.whatsapp_tenants.get(phone_number_id.lower(), settings.default_tenant_id)
+            tenant_id = deps.settings.whatsapp_tenants.get(phone_number_id.lower(), deps.settings.default_tenant_id)
             contacts = value.get("contacts") or []
             name = (
                 (contacts[0].get("profile") or {}).get("name") if contacts and isinstance(contacts[0], dict) else None
@@ -1497,7 +1419,7 @@ async def whatsapp_inbound(
                     continue
                 try:
                     results.append(
-                        workflow.ingest(
+                        deps.workflow.ingest(
                             InboundMessageRequest(
                                 event_id=f"whatsapp-inbound:{provider_message_id}"[:200],
                                 provider_message_id=provider_message_id[:200],

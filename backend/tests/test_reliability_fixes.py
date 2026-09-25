@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app import main, manage
+from app.api import deps
 from app.auth import Principal, resolve_principal
 from app.channels import ChannelGateway, DeliveryResult
 from app.config import Settings
@@ -39,10 +40,10 @@ MANAGER = Principal("tenant-demo", "manager", "Test Manager", "support_manager")
 def database(tmp_path: Path, monkeypatch) -> Database:
     db = Database(tmp_path / "reliability.db")
     db.initialize()
-    monkeypatch.setattr(main, "database", db)
-    monkeypatch.setattr(main, "workflow", SupportWorkflow(db))
-    monkeypatch.setattr(main, "settings", Settings(channel_mode="demo", webhook_token="hook-secret", whatsapp_app_secret=None, allow_unsigned_webhooks=True))
-    main.limiter.reset()
+    monkeypatch.setattr(deps, "database", db)
+    monkeypatch.setattr(deps, "workflow", SupportWorkflow(db))
+    monkeypatch.setattr(deps, "settings", Settings(channel_mode="demo", webhook_token="hook-secret", whatsapp_app_secret=None, allow_unsigned_webhooks=True))
+    deps.limiter.reset()
     return db
 
 
@@ -292,7 +293,7 @@ def test_one_bad_whatsapp_message_does_not_fail_the_batch(database):
 
 
 def test_webhooks_require_a_secret_unless_explicitly_allowed(database, monkeypatch):
-    monkeypatch.setattr(main, "settings", Settings(channel_mode="demo", webhook_token=None))
+    monkeypatch.setattr(deps, "settings", Settings(channel_mode="demo", webhook_token=None))
     body = {"event_id": "e", "provider_message_id": "p", "channel": "email", "sender": "x@y.com", "message": "spam"}
     assert client().post("/api/webhooks/inbound", json=body).status_code == 503
 
@@ -416,7 +417,7 @@ def test_token_cli_issues_and_revokes_access(tmp_path, monkeypatch, capsys):
 
 def test_webhook_tenant_is_chosen_from_the_receiving_address(database, monkeypatch):
     monkeypatch.setattr(
-        main, "settings",
+        deps, "settings",
         Settings(channel_mode="demo", webhook_token="hook-secret", email_tenants={"help@acme.test": "tenant-acme"}),
     )
     response = client().post(
@@ -451,7 +452,7 @@ async def test_proof_mode_simulates_automation_and_isolates_memory(database, mon
     database.add_policy(tenant_id="tenant-demo", title="Opening hours", content="Opening hours are 8am to 6pm on weekdays for all enquiries.", source_url=None, version="1")
     model = SafeModel()
     service = TriageService(database, model)
-    monkeypatch.setattr(main, "get_service", lambda: service)
+    monkeypatch.setattr(deps, "get_service", lambda: service)
     cases = [
         ProofCase(case_id=f"H-{n}", channel="email", message="What are your opening hours?", expected={"intent": "General enquiry"})
         for n in range(3)
@@ -468,8 +469,8 @@ async def test_proof_mode_simulates_automation_and_isolates_memory(database, mon
 
 
 def test_proof_endpoint_returns_immediately_and_enforces_demo_size(database, monkeypatch):
-    monkeypatch.setattr(main, "get_service", lambda: object())
-    monkeypatch.setattr(main, "settings", Settings(auth_mode="demo", demo_proof_case_limit=2))
+    monkeypatch.setattr(deps, "get_service", lambda: object())
+    monkeypatch.setattr(deps, "settings", Settings(auth_mode="demo", demo_proof_case_limit=2))
     too_many = {"name": "Big run", "cases": [{"case_id": f"H{n}", "channel": "email", "message": "Hi"} for n in range(3)]}
     assert client().post("/api/proof-runs", json=too_many).status_code == 422
 
@@ -491,18 +492,18 @@ def test_sliding_window_limiter_blocks_after_the_limit():
 
 def test_ai_endpoint_is_rate_limited_per_client(database, monkeypatch):
     seed_demo_data(database)
-    monkeypatch.setattr(main, "settings", Settings(auth_mode="demo", ai_requests_per_minute=2, groq_api_key=None))
+    monkeypatch.setattr(deps, "settings", Settings(auth_mode="demo", ai_requests_per_minute=2, groq_api_key=None))
     body = {"case_id": "KOR-2401", "customer_id": "CUS-1042"}
     statuses = [client().post("/api/triage", json=body).status_code for _ in range(3)]
     assert statuses == [503, 503, 429]
 
 
 def test_demo_daily_ai_budget(database, monkeypatch):
-    monkeypatch.setattr(main, "settings", Settings(auth_mode="demo", demo_daily_ai_limit=2))
-    assert main.consume_ai_budget() and main.consume_ai_budget()
-    assert main.consume_ai_budget() is False
-    monkeypatch.setattr(main, "settings", Settings(auth_mode="required", demo_daily_ai_limit=0))
-    assert main.consume_ai_budget() is True
+    monkeypatch.setattr(deps, "settings", Settings(auth_mode="demo", demo_daily_ai_limit=2))
+    assert deps.consume_ai_budget() and deps.consume_ai_budget()
+    assert deps.consume_ai_budget() is False
+    monkeypatch.setattr(deps, "settings", Settings(auth_mode="required", demo_daily_ai_limit=0))
+    assert deps.consume_ai_budget() is True
 
 
 def test_database_uses_write_ahead_logging(database):

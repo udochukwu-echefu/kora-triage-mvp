@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from app import main
+from app.api import deps
 from app.auth import Principal
 from app.database import Database
 from app.demo_seed import seed_demo_data
@@ -203,8 +204,8 @@ async def test_triage_endpoint_uses_the_persisted_case_payload(
             captured["tenant_id"] = tenant_id
             return {"ok": True}
 
-    monkeypatch.setattr(main, "database", database)
-    monkeypatch.setattr(main, "get_service", lambda: CapturingService())
+    monkeypatch.setattr(deps, "database", database)
+    monkeypatch.setattr(deps, "get_service", lambda: CapturingService())
     # A tampered browser payload is no longer accepted at all: only IDs are sent.
     with pytest.raises(ValueError):
         CaseTriageRequest(case_id=ticket["id"], customer_id=ticket["customerId"], message="Tampered")
@@ -313,7 +314,7 @@ async def test_bulk_approval_cannot_bypass_recorded_automation_policy(
         },
         guardrails={"escalated": False},
     )
-    monkeypatch.setattr(main, "database", database)
+    monkeypatch.setattr(deps, "database", database)
 
     with pytest.raises(HTTPException) as error:
         main.approve(
@@ -342,9 +343,9 @@ def test_case_actions_reject_a_different_customer(tmp_path: Path, monkeypatch) -
         decision={},
         guardrails={"escalated": False},
     )
-    monkeypatch.setattr(main, "database", database)
+    monkeypatch.setattr(deps, "database", database)
     with pytest.raises(HTTPException) as error:
-        main.validated_case("KOR-BOUND", "CUS-WRONG")
+        deps.validated_case("KOR-BOUND", "CUS-WRONG")
     assert error.value.status_code == 409
 
 
