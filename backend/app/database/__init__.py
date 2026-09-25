@@ -5,10 +5,13 @@ import sqlite3
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from ..automation import NOT_EVALUATED, recorded_automation_decision
+from .clock import minutes_since, utc_now
+
+__all__ = ["Database"]
 
 TABLES = """
 CREATE TABLE IF NOT EXISTS customer_memory (
@@ -221,22 +224,6 @@ ON proof_run(tenant_id, created_at DESC);
 # Lifecycle states in which a customer is still waiting for a first/next reply.
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
-
-
-def _minutes_since(value: str | None, now: datetime) -> int:
-    if not value:
-        return 0
-    try:
-        moment = datetime.fromisoformat(value)
-    except ValueError:
-        return 0
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
-    return max(0, int((now - moment).total_seconds() // 60))
-
-
 class Database:
     def __init__(self, path: Path):
         self.path = path
@@ -279,7 +266,7 @@ class Database:
             # leaving it "running" forever.
             connection.execute(
                 "UPDATE proof_run SET status = 'interrupted', updated_at = ? WHERE status = 'running'",
-                (_now().isoformat(),),
+                (utc_now().isoformat(),),
             )
 
     @staticmethod
@@ -413,7 +400,7 @@ class Database:
                 "ON CONFLICT(tenant_id, customer_id, case_id) DO UPDATE SET "
                 "summary = excluded.summary, entities_json = excluded.entities_json, "
                 "created_at = excluded.created_at",
-                (customer_id, case_id, summary, json.dumps(entities), created_at or _now().isoformat(), tenant_id),
+                (customer_id, case_id, summary, json.dumps(entities), created_at or utc_now().isoformat(), tenant_id),
             )
 
     def add_audit(
@@ -444,7 +431,7 @@ class Database:
                     json.dumps(decision),
                     json.dumps(guardrails),
                     actor,
-                    created_at or _now().isoformat(),
+                    created_at or utc_now().isoformat(),
                     tenant_id,
                 ),
             )
@@ -573,7 +560,7 @@ class Database:
             connection.execute(
                 "UPDATE support_ticket SET message = ?, subject = ?, received_at = ?, minutes_ago = 0, "
                 "last_message_at = ? WHERE case_id = ? AND tenant_id = ?",
-                (message, subject, received_at, last_message_at or _now().isoformat(), case_id, tenant_id),
+                (message, subject, received_at, last_message_at or utc_now().isoformat(), case_id, tenant_id),
             )
 
     _TICKET_QUERY = (
@@ -596,7 +583,7 @@ class Database:
             "message": row["message"],
             "receivedAt": row["received_at"],
             # Derived from timestamps on every read so SLA age never freezes.
-            "minutesAgo": _minutes_since(last_message_at, now),
+            "minutesAgo": minutes_since(last_message_at, now),
             "createdAt": row["created_at"],
             "lastMessageAt": last_message_at,
             "truthIntent": row["truth_intent"],
@@ -625,7 +612,7 @@ class Database:
                 + "WHERE t.tenant_id = ? ORDER BY COALESCE(t.last_message_at, t.created_at) DESC",
                 (tenant_id,),
             ).fetchall()
-        now = _now()
+        now = utc_now()
         return [self._ticket_from_row(row, now) for row in rows]
 
     def support_ticket(
@@ -636,7 +623,7 @@ class Database:
                 self._TICKET_QUERY + "WHERE t.tenant_id = ? AND t.case_id = ?",
                 (tenant_id, case_id),
             ).fetchone()
-        return self._ticket_from_row(row, _now()) if row else None
+        return self._ticket_from_row(row, utc_now()) if row else None
 
     def next_case_id(self, tenant_id: str = "tenant-demo") -> str:
         # BEGIN IMMEDIATE serializes allocation so simultaneous webhooks cannot
@@ -690,7 +677,7 @@ class Database:
                     provider,
                     event_type,
                     json.dumps(payload),
-                    _now().isoformat(),
+                    utc_now().isoformat(),
                 ),
             )
             return cursor.rowcount == 1
@@ -735,7 +722,7 @@ class Database:
                     subject,
                     body,
                     delivery_status,
-                    created_at or _now().isoformat(),
+                    created_at or utc_now().isoformat(),
                     rfc_message_id,
                 ),
             )
@@ -819,7 +806,7 @@ class Database:
         provider: str | None = None,
         assigned_to: str | None = None,
     ) -> dict:
-        now = _now().isoformat()
+        now = utc_now().isoformat()
         resolved_at = now if state == "resolved" else None
         with self.connect() as connection:
             previous = connection.execute(
@@ -874,7 +861,7 @@ class Database:
         payload: dict,
         max_attempts: int = 5,
     ) -> int:
-        now = _now().isoformat()
+        now = utc_now().isoformat()
         stored_key = f"{tenant_id}:{idempotency_key}"
         with self.connect() as connection:
             connection.execute(
@@ -901,7 +888,7 @@ class Database:
     def claim_job(
         self, tenant_id: str | None = None, lease_seconds: int = 300
     ) -> dict | None:
-        now = _now()
+        now = utc_now()
         stale_before = (now - timedelta(seconds=lease_seconds)).isoformat()
         with self.connect() as connection:
             row = connection.execute(
@@ -932,14 +919,14 @@ class Database:
         with self.connect() as connection:
             connection.execute(
                 "UPDATE delivery_job SET status = 'succeeded', updated_at = ? WHERE id = ?",
-                (_now().isoformat(), job_id),
+                (utc_now().isoformat(), job_id),
             )
 
     def cancel_job(self, job_id: int, reason: str) -> None:
         with self.connect() as connection:
             connection.execute(
                 "UPDATE delivery_job SET status = 'cancelled', last_error = ?, updated_at = ? WHERE id = ?",
-                (reason[:1000], _now().isoformat(), job_id),
+                (reason[:1000], utc_now().isoformat(), job_id),
             )
 
     def fail_job(self, job_id: int, error: str) -> str:
@@ -950,7 +937,7 @@ class Database:
             dead = int(row["attempts"]) >= int(row["max_attempts"])
             status = "dead" if dead else "retry"
             delay = min(300, 2 ** int(row["attempts"]))
-            run_after = (_now() + timedelta(seconds=delay)).isoformat()
+            run_after = (utc_now() + timedelta(seconds=delay)).isoformat()
             connection.execute(
                 "UPDATE delivery_job SET status = ?, run_after = ?, last_error = ?, updated_at = ? "
                 "WHERE id = ?",
@@ -958,7 +945,7 @@ class Database:
                     status,
                     run_after,
                     error[:1000],
-                    _now().isoformat(),
+                    utc_now().isoformat(),
                     job_id,
                 ),
             )
@@ -1062,7 +1049,7 @@ class Database:
                     None if response_accepted is None else int(response_accepted),
                     int(response_edited),
                     reason,
-                    _now().isoformat(),
+                    utc_now().isoformat(),
                 ),
             )
             return int(cursor.lastrowid)
@@ -1095,7 +1082,7 @@ class Database:
                 "INSERT OR REPLACE INTO api_principal "
                 "(token_hash, tenant_id, user_id, display_name, role, active, created_at) "
                 "VALUES (?, ?, ?, ?, ?, 1, ?)",
-                (token_hash, tenant_id, user_id, display_name, role, _now().isoformat()),
+                (token_hash, tenant_id, user_id, display_name, role, utc_now().isoformat()),
             )
 
     def deactivate_principals(self, *, tenant_id: str, user_id: str) -> int:
@@ -1147,7 +1134,7 @@ class Database:
                 "INSERT INTO app_setting (key, value_json, updated_at) VALUES (?, ?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, "
                 "updated_at = excluded.updated_at",
-                (stored_key, json.dumps(value), _now().isoformat()),
+                (stored_key, json.dumps(value), utc_now().isoformat()),
             )
         return value
 
@@ -1176,7 +1163,7 @@ class Database:
         source_url: str | None,
         version: str,
     ) -> dict:
-        now = _now().isoformat()
+        now = utc_now().isoformat()
         with self.connect() as connection:
             cursor = connection.execute(
                 "INSERT INTO knowledge_policy "
@@ -1212,7 +1199,7 @@ class Database:
             connection.execute(
                 "UPDATE knowledge_policy SET active = ?, updated_at = ? "
                 "WHERE id = ? AND tenant_id = ?",
-                (int(active), _now().isoformat(), policy_id, tenant_id),
+                (int(active), utc_now().isoformat(), policy_id, tenant_id),
             )
         return self.policy(policy_id, tenant_id)
 
@@ -1224,7 +1211,7 @@ class Database:
         assignee: str | None,
         expected_assignee: str | None = None,
     ) -> dict:
-        now = _now().isoformat()
+        now = utc_now().isoformat()
         with self.connect() as connection:
             if not connection.in_transaction:
                 connection.execute("BEGIN IMMEDIATE")
@@ -1257,7 +1244,7 @@ class Database:
         body: str,
         mentions: list[str],
     ) -> dict:
-        now = _now().isoformat()
+        now = utc_now().isoformat()
         with self.connect() as connection:
             cursor = connection.execute(
                 "INSERT INTO case_note "
@@ -1302,7 +1289,7 @@ class Database:
     def add_proof_run(
         self, *, tenant_id: str, name: str, status: str, report: dict
     ) -> dict:
-        now = _now().isoformat()
+        now = utc_now().isoformat()
         with self.connect() as connection:
             cursor = connection.execute(
                 "INSERT INTO proof_run (tenant_id, name, status, report_json, created_at, updated_at) "
@@ -1319,7 +1306,7 @@ class Database:
             connection.execute(
                 "UPDATE proof_run SET status = ?, report_json = ?, updated_at = ? "
                 "WHERE id = ? AND tenant_id = ?",
-                (status, json.dumps(report), _now().isoformat(), run_id, tenant_id),
+                (status, json.dumps(report), utc_now().isoformat(), run_id, tenant_id),
             )
         return self.proof_run(run_id, tenant_id)
 
@@ -1366,7 +1353,7 @@ class Database:
                 "INSERT INTO team_member (tenant_id, name, role, teams_json, capacity, availability, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(tenant_id, name) DO UPDATE SET "
                 "role = excluded.role, teams_json = excluded.teams_json, capacity = excluded.capacity",
-                (tenant_id, name, role, json.dumps(teams), capacity, availability, _now().isoformat()),
+                (tenant_id, name, role, json.dumps(teams), capacity, availability, utc_now().isoformat()),
             )
 
     def team_members(self, tenant_id: str) -> list[dict]:
@@ -1382,7 +1369,7 @@ class Database:
         with self.connect() as connection:
             connection.execute(
                 "UPDATE team_member SET availability = ?, updated_at = ? WHERE id = ? AND tenant_id = ?",
-                (availability, _now().isoformat(), member_id, tenant_id),
+                (availability, utc_now().isoformat(), member_id, tenant_id),
             )
             row = connection.execute(
                 "SELECT * FROM team_member WHERE id = ? AND tenant_id = ?", (member_id, tenant_id)
