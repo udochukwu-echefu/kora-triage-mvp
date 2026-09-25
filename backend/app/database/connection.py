@@ -1,7 +1,8 @@
 """SQLite connection handling shared by every repository.
 
 connect() reuses the connection of an enclosing transaction(), so
-repository methods called inside one commit or roll back together."""
+repository methods called inside one commit or roll back together.
+"""
 
 from __future__ import annotations
 
