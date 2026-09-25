@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
+from collections.abc import Iterable
 from datetime import datetime, timedelta
-from pathlib import Path
 
 from ..automation import NOT_EVALUATED, recorded_automation_decision
 from .clock import minutes_since, utc_now
+from .connection import SQLiteStore
 
 __all__ = ["Database"]
 
@@ -224,12 +222,7 @@ ON proof_run(tenant_id, created_at DESC);
 # Lifecycle states in which a customer is still waiting for a first/next reply.
 
 
-class Database:
-    def __init__(self, path: Path):
-        self.path = path
-        self._active_connection: ContextVar[sqlite3.Connection | None] = ContextVar(
-            f"database_connection_{id(self)}", default=None
-        )
+class Database(SQLiteStore):
 
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -324,46 +317,6 @@ class Database:
         if column not in columns:
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
-    def _open(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=10)
-        connection.row_factory = sqlite3.Row
-        return connection
-
-    @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        active = self._active_connection.get()
-        if active is not None:
-            yield active
-            return
-        connection = self._open()
-        try:
-            yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
-
-    @contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
-        """Share one atomic SQLite transaction across repository operations."""
-        active = self._active_connection.get()
-        if active is not None:
-            yield active
-            return
-        connection = self._open()
-        token = self._active_connection.set(connection)
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            self._active_connection.reset(token)
-            connection.close()
 
     def memories_for(
         self, customer_id: str, limit: int = 5, tenant_id: str = "tenant-demo"
