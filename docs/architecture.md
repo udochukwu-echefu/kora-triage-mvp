@@ -28,13 +28,15 @@ flowchart LR
 
 ## Implemented boundaries
 
-- `backend/app/main.py`: HTTP API, authentication, webhook verification, and application lifecycle.
+- `backend/app/main.py`: builds the app: lifecycle, middleware and router registration.
+- `backend/app/api/routers/`: one module per API area (cases, case actions, policies, proof runs, operations, evaluations, webhooks, system).
+- `backend/app/api/deps.py`: shared state and dependencies (auth, rate limits, AI budget). `api/webhook_auth.py` verifies provider webhooks.
 - `backend/app/service.py`: redacted model request, policy application, persistence, and audit creation.
 - `backend/app/groq_triage.py`: schema-constrained model integration.
 - `backend/app/triage_policy.py` and `backend/app/guardrails.py`: deterministic operational and safety decisions.
 - `backend/app/automation.py`: the single automation-eligibility authority. It emits a stable `eligible`, `reason`, and `code` record consumed by persistence, delivery, queue metrics, and actions.
 - `backend/app/workflow.py`: idempotent inbound processing, retries, dead-letter handling, and simulated delivery.
-- `backend/app/database.py`: tenant-scoped SQLite persistence.
+- `backend/app/database/`: tenant-scoped SQLite persistence, one repository per domain (cases, messages, jobs, audit, workspace), plus schema and in-place migrations.
 - `src/App.jsx`: support queue, human review, proof mode, settings, and audit interface.
 
 ## Automation policy boundary
