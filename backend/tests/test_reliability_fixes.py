@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from app import main, manage
 from app.api import deps
-from app.api.routers import proof_runs
+from app.api.routers import operations, proof_runs
 from app.auth import Principal, resolve_principal
 from app.channels import ChannelGateway, DeliveryResult
 from app.config import Settings
@@ -29,6 +29,7 @@ from app.schemas import (
     ProofCase,
     Route,
     Sentiment,
+    TeamAvailabilityRequest,
     Urgency,
 )
 from app.service import TriageService
@@ -516,10 +517,10 @@ def test_database_uses_write_ahead_logging(database):
 
 def test_team_availability_is_editable_by_self_or_manager(database):
     seed_demo_data(database)
-    members = {member["name"]: member for member in main.team(MANAGER)["items"]}
+    members = {member["name"]: member for member in operations.team(MANAGER)["items"]}
     musa = members["Musa Ibrahim"]
     agent = Principal("tenant-demo", "bola", "Bola Martins", "support_agent")
     with pytest.raises(HTTPException):
-        main.set_team_availability(musa["id"], main.TeamAvailabilityRequest(availability="Online"), agent)
-    assert main.set_team_availability(members["Bola Martins"]["id"], main.TeamAvailabilityRequest(availability="Away"), agent)["availability"] == "Away"
-    assert main.set_team_availability(musa["id"], main.TeamAvailabilityRequest(availability="Online"), MANAGER)["availability"] == "Online"
+        operations.set_team_availability(musa["id"], TeamAvailabilityRequest(availability="Online"), agent)
+    assert operations.set_team_availability(members["Bola Martins"]["id"], TeamAvailabilityRequest(availability="Away"), agent)["availability"] == "Away"
+    assert operations.set_team_availability(musa["id"], TeamAvailabilityRequest(availability="Online"), MANAGER)["availability"] == "Online"

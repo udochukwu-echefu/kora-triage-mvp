@@ -20,18 +20,15 @@ from .api import deps
 from .api.deps import (
     ai_rate_limit,
     current_principal,
-    manager_principal,
     require_ai_budget,
     validated_case,
     write_rate_limit,
 )
-from .api.routers import policies, proof_runs, system
+from .api.routers import evaluations, operations, policies, proof_runs, system
 from .api.webhook_auth import verify_postmark_webhook, verify_webhook_token, verify_whatsapp_signature
-from .auth import ROLE_LEVEL, Principal, require_role
+from .auth import ROLE_LEVEL, Principal
 from .automation import recorded_automation_decision
 from .demo_seed import seed_demo_data
-from .evaluation import evaluation_summary, regression_gate
-from .evaluation_dataset import dataset_summary
 from .guardrails import review_response
 from .launch_features import PaystackVerifier
 from .schemas import (
@@ -45,7 +42,6 @@ from .schemas import (
     ManualAssessmentRequest,
     ResolveRequest,
     RouteRequest,
-    TeamAvailabilityRequest,
     TransactionVerifyRequest,
     TriageRequest,
     TriageResult,
@@ -735,64 +731,6 @@ def resolve_case(
     return {"case_id": case_id, "lifecycle": lifecycle, "audit_id": audit_id}
 
 
-@app.get("/api/team")
-def team(principal: Principal = Depends(current_principal)) -> dict:
-    return {"items": deps.database.team_members(principal.tenant_id)}
-
-
-@app.put("/api/team/{member_id}/availability")
-def set_team_availability(
-    member_id: int,
-    value: TeamAvailabilityRequest,
-    principal: Principal = Depends(current_principal),
-    _: None = Depends(write_rate_limit),
-) -> dict:
-    members = {member["id"]: member for member in deps.database.team_members(principal.tenant_id)}
-    member = members.get(member_id)
-    if not member:
-        raise HTTPException(status_code=404, detail="Team member not found.")
-    if member["name"] != principal.display_name:
-        require_role(principal, "support_manager")
-    return deps.database.set_team_availability(member_id, value.availability, principal.tenant_id)
-
-
-@app.get("/api/evaluations/summary")
-def evaluations(principal: Principal = Depends(current_principal)) -> dict:
-    return evaluation_summary(deps.database, principal.tenant_id)
-
-
-@app.get("/api/evaluations/dataset")
-def evaluation_dataset(
-    _: Principal = Depends(manager_principal),
-) -> dict:
-    return dataset_summary()
-
-
-@app.get("/api/evaluations/gate")
-def evaluation_gate(
-    principal: Principal = Depends(manager_principal),
-) -> dict:
-    return regression_gate(deps.database, principal.tenant_id)
-
-
-@app.get("/api/jobs")
-def jobs(
-    limit: int = Query(default=100, ge=1, le=500),
-    principal: Principal = Depends(manager_principal),
-) -> dict:
-    return {
-        "counts": deps.database.job_counts(principal.tenant_id),
-        "items": deps.database.jobs(principal.tenant_id, limit),
-    }
-
-
-@app.post("/api/jobs/run-once")
-async def run_job_once(principal: Principal = Depends(manager_principal)) -> dict:
-    if not deps.worker:
-        raise HTTPException(status_code=503, detail="Workflow worker is not initialized.")
-    return {"processed": await deps.worker.process_one(tenant_id=principal.tenant_id)}
-
-
 @app.post("/api/webhooks/inbound", status_code=202)
 def generic_inbound(
     message: InboundMessageRequest,
@@ -1080,6 +1018,8 @@ async def whatsapp_inbound(
 app.include_router(system.router)
 app.include_router(policies.router)
 app.include_router(proof_runs.router)
+app.include_router(operations.router)
+app.include_router(evaluations.router)
 
 
 # Railway serves the compiled Vite frontend and API from the same origin.

@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from app import main
 from app.api import deps
+from app.api.routers import operations
 from app.auth import Principal
 from app.channels import ChannelGateway
 from app.config import Settings
@@ -94,9 +95,9 @@ async def test_manager_run_once_only_processes_their_tenants_jobs(database, monk
     monkeypatch.setattr(worker, "_triage", record_job)
     monkeypatch.setattr(deps, "worker", worker)
     principal = Principal("tenant-a", "manager", "Manager", "support_manager")
-    assert await main.run_job_once(principal) == {"processed": True}
+    assert await operations.run_job_once(principal) == {"processed": True}
     assert processed == ["tenant-a"]
-    assert await main.run_job_once(principal) == {"processed": False}
+    assert await operations.run_job_once(principal) == {"processed": False}
     assert database.job_counts("tenant-b")["queued"] == 1
     # The background worker must still service every tenant.
     assert await worker.process_one() is True
