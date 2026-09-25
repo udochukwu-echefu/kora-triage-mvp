@@ -8,7 +8,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .automation import NOT_EVALUATED, recorded_automation_decision
+from ..automation import NOT_EVALUATED, recorded_automation_decision
 
 TABLES = """
 CREATE TABLE IF NOT EXISTS customer_memory (
