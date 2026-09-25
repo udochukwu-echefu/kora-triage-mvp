@@ -3,9 +3,8 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import main
 from app.api import deps
-from app.api.routers import case_actions, operations
+from app.api.routers import case_actions, operations, webhooks
 from app.auth import Principal
 from app.channels import ChannelGateway
 from app.config import Settings
@@ -114,7 +113,7 @@ def outbound(database, case, provider="postmark", message_id="outbound"):
 
 
 def receipt(event="receipt", status="delivered", provider="postmark"):
-    return main._record_delivery_update(
+    return webhooks._record_delivery_update(
         event_id=event, provider=provider, provider_message_id="outbound",
         status_value=status, payload={},
     )

@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app import main
 from app.api import deps, webhook_auth
+from app.api.routers import webhooks
 from app.auth import resolve_principal, token_hash
 from app.benchmark import score_predictions
 from app.channels import ChannelGateway
@@ -328,7 +328,7 @@ def test_delivery_receipt_updates_message_lifecycle_and_audit(
     )
     monkeypatch.setattr(deps, "database", database)
 
-    receipt = main._record_delivery_update(
+    receipt = webhooks._record_delivery_update(
         event_id="delivery-1",
         provider="postmark",
         provider_message_id="provider-outbound-1",

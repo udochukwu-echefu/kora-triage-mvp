@@ -5,9 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...auth import Principal, require_role
-from ...schemas import (
-    TeamAvailabilityRequest,
-)
+from ...schemas import TeamAvailabilityRequest
 from .. import deps
 from ..deps import (
     current_principal,

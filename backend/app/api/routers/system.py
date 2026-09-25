@@ -6,9 +6,7 @@ from fastapi import APIRouter, Depends
 
 from ...auth import Principal
 from .. import deps
-from ..deps import (
-    current_principal,
-)
+from ..deps import current_principal
 
 router = APIRouter()
 
