@@ -217,10 +217,8 @@ ON proof_run(tenant_id, created_at DESC);
 """
 
 # Kept for callers that referenced the previous single schema constant.
-SCHEMA = TABLES + INDEXES
 
 # Lifecycle states in which a customer is still waiting for a first/next reply.
-AWAITING_REPLY_STATES = {"new", "triaged", "review_required", "replied", "reopened", "failed"}
 
 
 def _now() -> datetime:
