@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from app import main, manage
 from app.api import deps
+from app.api.routers import proof_runs
 from app.auth import Principal, resolve_principal
 from app.channels import ChannelGateway, DeliveryResult
 from app.config import Settings
@@ -459,7 +460,7 @@ async def test_proof_mode_simulates_automation_and_isolates_memory(database, mon
     ]
     for _ in range(2):
         run = database.add_proof_run(tenant_id="tenant-demo", name="Run", status="running", report={})
-        finished = await main.execute_proof_run(run["id"], cases, MANAGER)
+        finished = await proof_runs.execute_proof_run(run["id"], cases, MANAGER)
     assert finished["status"] == "complete"
     assert finished["report"]["safe_automation_candidates"] == 3
     assert finished["report"]["readiness_score"] == 100
