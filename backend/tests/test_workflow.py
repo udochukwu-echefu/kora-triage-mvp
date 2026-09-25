@@ -10,7 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from app import main
-from app.api import deps
+from app.api import deps, webhook_auth
 from app.auth import resolve_principal, token_hash
 from app.benchmark import score_predictions
 from app.channels import ChannelGateway
@@ -462,7 +462,7 @@ def test_live_generic_webhook_fails_closed_without_a_secret(monkeypatch) -> None
         Settings(channel_mode="live", webhook_token=None),
     )
     with pytest.raises(HTTPException) as error:
-        main.verify_webhook_token(None)
+        webhook_auth.verify_webhook_token(None)
     assert error.value.status_code == 503
 
 
@@ -477,9 +477,9 @@ def test_postmark_supports_basic_auth_for_provider_webhooks(monkeypatch) -> None
         ),
     )
     credentials = base64.b64encode(b"kora:secret").decode("ascii")
-    main.verify_postmark_webhook(f"Basic {credentials}", None)
+    webhook_auth.verify_postmark_webhook(f"Basic {credentials}", None)
     with pytest.raises(HTTPException) as error:
-        main.verify_postmark_webhook("Basic bad", None)
+        webhook_auth.verify_postmark_webhook("Basic bad", None)
     assert error.value.status_code == 401
 
 
@@ -494,7 +494,7 @@ def test_whatsapp_signature_uses_the_exact_raw_request_body(monkeypatch) -> None
         "settings",
         Settings(channel_mode="live", whatsapp_app_secret=secret),
     )
-    main.verify_whatsapp_signature(raw, signature)
+    webhook_auth.verify_whatsapp_signature(raw, signature)
     with pytest.raises(HTTPException) as error:
-        main.verify_whatsapp_signature(raw + b" ", signature)
+        webhook_auth.verify_whatsapp_signature(raw + b" ", signature)
     assert error.value.status_code == 401
