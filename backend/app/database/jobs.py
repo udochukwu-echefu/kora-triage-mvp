@@ -130,16 +130,3 @@ class JobRepository(SQLiteStore):
             status: int(counts.get(status, 0))
             for status in ("queued", "running", "retry", "succeeded", "dead", "cancelled")
         }
-
-    def pending_send_jobs(self, case_id: str, tenant_id: str) -> list[dict]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                "SELECT id, payload_json FROM delivery_job WHERE tenant_id = ? "
-                "AND job_type = 'send_response' AND status IN ('queued', 'retry', 'running')",
-                (tenant_id,),
-            ).fetchall()
-        return [
-            {"id": row["id"], **json.loads(row["payload_json"])}
-            for row in rows
-            if json.loads(row["payload_json"]).get("case_id") == case_id
-        ]

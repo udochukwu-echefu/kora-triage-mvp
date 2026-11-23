@@ -49,20 +49,6 @@ class Route(str, Enum):
     general_support = "General Support"
 
 
-class LifecycleStatus(str, Enum):
-    new = "new"
-    triaged = "triaged"
-    review_required = "review_required"
-    approved = "approved"
-    queued = "queued"
-    sent = "sent"
-    delivered = "delivered"
-    replied = "replied"
-    resolved = "resolved"
-    reopened = "reopened"
-    failed = "failed"
-
-
 class ExtractedEntities(RequestModel):
 
     amount: str | None
@@ -143,7 +129,6 @@ class TriageResult(RequestModel):
 
 class ActionRequest(RequestModel):
 
-    actor: str = Field(default="support-agent", min_length=1, max_length=120)
     customer_id: str = Field(min_length=1, max_length=80)
     note: str | None = Field(default=None, max_length=1000)
     response: str | None = Field(default=None, max_length=1200)
@@ -152,7 +137,6 @@ class ActionRequest(RequestModel):
 
 class RouteRequest(RequestModel):
 
-    actor: str = Field(default="support-agent", min_length=1, max_length=120)
     customer_id: str = Field(min_length=1, max_length=80)
     team: str = Field(pattern="^(Transfers|Fraud|Logistics|Billing|Account Support|Compliance|General Support)$")
 
@@ -181,7 +165,6 @@ class InboundMessageRequest(RequestModel):
 
 class FeedbackRequest(RequestModel):
 
-    actor: str = Field(default="support-agent", min_length=1, max_length=120)
     customer_id: str = Field(min_length=1, max_length=80)
     corrected_intent: Intent | None = None
     corrected_urgency: Urgency | None = None
@@ -192,17 +175,8 @@ class FeedbackRequest(RequestModel):
 
 class ResolveRequest(RequestModel):
 
-    actor: str = Field(default="support-agent", min_length=1, max_length=120)
     customer_id: str = Field(min_length=1, max_length=80)
     resolution: str = Field(min_length=2, max_length=1000)
-
-
-class DeliveryEventRequest(RequestModel):
-
-    event_id: str = Field(min_length=1, max_length=200)
-    provider_message_id: str = Field(min_length=1, max_length=200)
-    status: str = Field(pattern="^(sent|delivered|bounced|failed)$")
-    detail: str | None = Field(default=None, max_length=1000)
 
 
 class KnowledgePolicyRequest(RequestModel):
