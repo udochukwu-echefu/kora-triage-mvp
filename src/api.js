@@ -70,8 +70,6 @@ export const getCases = () => api("/api/cases");
 export const getCurrentUser = () => api("/api/auth/me");
 export const getIntegrations = () => api("/api/integrations");
 export const getEvaluationSummary = () => api("/api/evaluations/summary");
-export const getEvaluationGate = () => api("/api/evaluations/gate");
-export const getJobs = (limit = 100) => api(`/api/jobs?limit=${encodeURIComponent(limit)}`);
 export const getCaseConversation = (caseId) => api(`/api/cases/${encodeURIComponent(caseId)}/conversation`);
 export const getPolicies = () => api("/api/policies");
 export const createPolicy = (policy) => post("/api/policies", policy);

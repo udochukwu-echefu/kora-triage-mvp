@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.api import deps
 from app.api.routers import case_actions, operations, webhooks
@@ -9,7 +10,14 @@ from app.auth import Principal
 from app.channels import ChannelGateway
 from app.config import Settings
 from app.database import Database
-from app.schemas import ActionRequest, InboundMessageRequest, ManualAssessmentRequest
+from app.schemas import (
+    ActionRequest,
+    FeedbackRequest,
+    InboundMessageRequest,
+    ManualAssessmentRequest,
+    ResolveRequest,
+    RouteRequest,
+)
 from app.workflow import SupportWorkflow, WorkflowWorker
 
 
@@ -76,6 +84,47 @@ def test_manual_assessment_can_be_approved_without_using_old_model_draft(
     )
     assert approved["status"] == "approved"
     assert database.feedback()[0]["predicted"]["response"] == draft
+
+
+def test_case_actions_are_attributed_to_the_signed_in_user_only(database):
+    case = ingest(database, event="attribution")
+    case_id, customer_id = case["case_id"], case["customer_id"]
+    principal = Principal("tenant-demo", "agent", "Test Agent", "support_agent")
+    # Request bodies cannot name an actor: attribution comes from the token alone.
+    for model, fields in (
+        (ActionRequest, {}),
+        (RouteRequest, {"team": "Billing"}),
+        (FeedbackRequest, {"reason": "Wrong queue"}),
+        (ResolveRequest, {"resolution": "Customer confirmed the fix."}),
+    ):
+        with pytest.raises(ValidationError):
+            model(customer_id=customer_id, actor="Someone Else", **fields)
+
+    case_actions.manual_assessment(
+        case_id,
+        ManualAssessmentRequest(
+            customer_id=customer_id, intent="Account access", urgency="medium",
+            route="Account Support", response="Account Support will review your access issue.",
+        ),
+        principal,
+    )
+    case_actions.route_case(case_id, RouteRequest(customer_id=customer_id, team="Billing"), principal)
+    case_actions.escalate(case_id, ActionRequest(customer_id=customer_id, note="Needs a specialist"), principal)
+    case_actions.record_feedback(
+        case_id, FeedbackRequest(customer_id=customer_id, reason="Wrong queue"), principal
+    )
+    case_actions.resolve_case(
+        case_id, ResolveRequest(customer_id=customer_id, resolution="Customer confirmed the fix."), principal
+    )
+    human_events = {
+        item["event_type"]: item["actor"]
+        for item in database.audits()
+        if item["event_type"] in {"human_routed", "human_escalated", "human_feedback", "case_resolved"}
+    }
+    assert human_events == dict.fromkeys(
+        ("human_routed", "human_escalated", "human_feedback", "case_resolved"), "Test Agent"
+    )
+    assert {item["actor"] for item in database.feedback()} == {"Test Agent"}
 
 
 @pytest.mark.asyncio

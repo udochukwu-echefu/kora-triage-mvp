@@ -127,7 +127,7 @@ async def execute_proof_run(
             )
 
     await asyncio.gather(*(run_case(index, case) for index, case in enumerate(cases)))
-    report = proof_report([row for row in rows if row], auto_threshold=automation["auto_approve_threshold"])
+    report = proof_report([row for row in rows if row])
     report["simulated_thresholds"] = {
         "auto_approve_threshold": automation["auto_approve_threshold"],
         "mandatory_review_threshold": automation["mandatory_review_threshold"],

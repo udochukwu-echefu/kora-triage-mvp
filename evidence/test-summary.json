@@ -1,6 +1,6 @@
 {
   "status": "passed",
-  "backend_test_cases": 255,
+  "backend_test_cases": 256,
   "frontend_test_cases": 17,
   "commands": [
     "PYTHONPATH=backend pytest -q backend/tests",

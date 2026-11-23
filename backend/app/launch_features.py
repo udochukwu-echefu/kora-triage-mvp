@@ -87,7 +87,7 @@ def relevant_policies(
     ]
 
 
-def proof_report(rows: list[dict], auto_threshold: int = 95) -> dict:
+def proof_report(rows: list[dict]) -> dict:
     completed = [row for row in rows if not row.get("error")]
     labelled = [row for row in completed if row.get("expected")]
     correct = 0
